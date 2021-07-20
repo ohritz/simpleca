@@ -17,10 +17,10 @@ pfxPwd="$(. /opt/tools/read-password.sh)"
 
 # Output files
 # ${SERVER_CN}.key.pem: Server private key, password protected (this shouldn't be shared)
-# server-cert-req.csr: Server certificate signing request (this should be shared with the CA owner)
-# server.crt: Server certificate signed by the CA (this would be sent back by the CA owner) - keep on server
-# ${SERVER_CN}-cert.pem: Conversion of server.key into a pkcs8 format gRPC likes (this shouldn't be shared)
-# ${SERVER_CN}-cert.pfx: password protected pfx file with the whole certificate chain.
+# ${SERVER_CN}.csr: Server certificate signing request (this should be shared with the CA owner)
+# ${SERVER_CN}.cert.pem: Server certificate signed by the CA (this would be sent back by the CA owner) - keep on server
+# ${SERVER_CN}.pkcs8.key.pem: Conversion of server.key into a pkcs8 format gRPC likes (this shouldn't be shared)
+# ${SERVER_CN}.pfx: password protected pfx file with the whole certificate chain.
 
 # Step 1: Generate the Server Private Key (server.key)
 openssl genrsa -aes256 -passout pass:"${passwd}" -out $serverKey 2048
