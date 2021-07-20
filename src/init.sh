@@ -36,7 +36,7 @@ chmod 400 $rootCAKey
 openssl req -x509 -new -key $rootCAKey \
   -config $rootConfig -extensions v3_ca \
   -sha512 -days 7300 -out $rootCaCert -passin pass:"${rootPasswd}" \
-  -subj "/C=${ROOT_COUNTRY}/ST=${ROOT_STATE}/L=${ROOT_Locality}/O=${ROOT_ORG}/OU=${ROOT_ORG} Certificate Authority/CN=${ROOT_ORG} Root CA"
+  -subj "/C=${ROOT_COUNTRY}/ST=${ROOT_STATE}/L=${ROOT_LOCALITY}/O=${ROOT_ORG}/OU=${ROOT_ORG} Certificate Authority/CN=${ROOT_ORG} Root CA"
 
 chmod 444 $rootCaCert
 echo "Root CA created"
@@ -66,7 +66,7 @@ openssl req -config $intermediateConfig -new -sha256 \
       -key $intermediateKey \
       -out $intermediateCsr \
       -passin pass:"${intermediatePasswd}" \
-      -subj "/C=${ROOT_COUNTRY}/ST=${ROOT_STATE}/L=${ROOT_Locality}/O=${ROOT_ORG}/OU=${ROOT_ORG} Certificate Authority/CN=${ROOT_ORG} Intermediate CA"
+      -subj "/C=${ROOT_COUNTRY}/ST=${ROOT_STATE}/L=${ROOT_LOCALITY}/O=${ROOT_ORG}/OU=${ROOT_ORG} Certificate Authority/CN=${ROOT_ORG} Intermediate CA"
 
 openssl ca -config $rootConfig -extensions v3_intermediate_ca \
       -days 3650 -notext -md sha256 \
