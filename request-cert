@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+echo "Enter hostname to create cert for"
+read hostname
+
+reqCertDir=${PWD}/certs/${hostname}
+mkdir -p ${reqCertDir}
+
+docker run \
+--name rootCA \
+-it --rm \
+--mount source=ca-test,target=/opt/ca \
+-v ${reqCertDir}:/opt/ca/export \
+osorenan/simpleca \
+${hostname}

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+docker run \
+-it --rm \
+--env-file ./.env \
+--mount source=dev-st,target=/opt/ca \
+-v ${PWD}/src:/opt/tools \
+--entrypoint="sh" \
+ohritz/simpleca
