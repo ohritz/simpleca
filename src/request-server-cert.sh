@@ -9,9 +9,6 @@ rootCaPasswd="$(. /opt/tools/read-password.sh)"
 
 echo "Choose a password for the Server private key: "
 passwd="$(. /opt/tools/read-password.sh)"
-
-echo "Choose a password for the PFX: "
-pfxPwd="$(. /opt/tools/read-password.sh)"
 #------------- --------------- ------------------
 
 
@@ -50,8 +47,8 @@ mkdir -p $outputDir
 # # Step 4: Convert the server certificate to .pem format (server.pem) - usable by gRPC
 openssl pkcs8 -topk8 -passin pass:"$passwd" -passout pass:"${passwd}" -in $serverKey -out $serverPem
 
-openssl pkcs12 -export -inkey $serverKey -passin pass:"$passwd" \
-             -passout pass:"$pfxPwd" \
+echo "Exporting server cert as pkcs12/pfx file..."
+openssl pkcs12 -export -inkey $serverKey -passin pass:"${passwd}" \
              -in $serverCert -certfile $certificateChain \
              -out $serverPfx
 
