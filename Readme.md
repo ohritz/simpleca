@@ -43,7 +43,7 @@ docker run \
 -it --rm \
 --env-file ./.env \
 --mount source=ca-vol,target=/opt/ca \
-osorenan/simpleca init
+osorenan/simpleca --init
 ```
 
 to create a server certificate run

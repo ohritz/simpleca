@@ -6,4 +6,4 @@ docker run \
 --mount source=dev-st,target=/opt/ca \
 -v ${PWD}/src:/opt/tools \
 --entrypoint="sh" \
-ohritz/simpleca
+osorenan/simpleca
