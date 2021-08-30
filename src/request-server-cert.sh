@@ -9,9 +9,6 @@ rootCaPasswd="$(. /opt/tools/read-password.sh)"
 
 echo "Choose a password for the Server private key: "
 passwd="$(. /opt/tools/read-password.sh)"
-
-echo "Choose a password for the PFX: "
-pfxPwd="$(. /opt/tools/read-password.sh)"
 #------------- --------------- ------------------
 
 
@@ -34,11 +31,6 @@ openssl req -config $intermediateConfig \
         -subj "/CN=${SERVER_CN}"
 
 # # Step 3: Sign the certificate with the CA we created (it's called self signing) - server.crt
-# openssl x509 -req -days 3650 \
-#         -passin pass:"${rootCaPasswd}" -in $serverCsr \
-#         -CA $rootCaCert -CAkey $rootCAKeyPath -CAcreateserial \
-#         -out $serverCert -extensions req_ext -extfile $configPath
-
 openssl ca -config $intermediateConfig \
         -extensions server_cert -days 375 -notext -md sha256 \
         -passin pass:"$rootCaPasswd" \
@@ -50,8 +42,8 @@ mkdir -p $outputDir
 # # Step 4: Convert the server certificate to .pem format (server.pem) - usable by gRPC
 openssl pkcs8 -topk8 -passin pass:"$passwd" -passout pass:"${passwd}" -in $serverKey -out $serverPem
 
-openssl pkcs12 -export -inkey $serverKey -passin pass:"$passwd" \
-             -passout pass:"$pfxPwd" \
+echo "Exporting server cert as pkcs12/pfx file..."
+openssl pkcs12 -export -inkey $serverKey -passin pass:"${passwd}" \
              -in $serverCert -certfile $certificateChain \
              -out $serverPfx
 

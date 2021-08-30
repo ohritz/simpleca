@@ -32,34 +32,56 @@ see: https://docs.docker.com/engine/extend/legacy_plugins/#volume-plugins
 ```bash
 docker build . -t osorenan/simpleca
 ```
-## To setup a ca
-Change values in the [.env](./.env)
+### To setup a ca
+Create a directory with a .env file with the following filled in.
+```
+ROOT_ORG=[org name]
+ROOT_COUNTRY=[Country code eg. 'SE']
+ROOT_STATE=[eg. Goteborg]
+ROOT_LOCALITY=[eg. Goteborg]
+```
 
-run
+then run:
 ```bash
-./create-ca
-# or
 docker run \
 -it --rm \
 --env-file ./.env \
 --mount source=ca-vol,target=/opt/ca \
-osorenan/simpleca init
+osorenan/simpleca \
+--init
 ```
 
-to create a server certificate run
+### To create a server certificate run
 ```bash
-./request-cert
-# or 
 mkdir ${PWD}/certs
 
 docker run \
 -it --rm \
 --mount source=ca-vol,target=/opt/ca \
--v ${PWD}/certs:/opt/ca/export \
+--mount type=bind,source=${PWD}/certs,target=/opt/export \
 osorenan/simpleca \
 [hostname]
-
 ```
+
+### To eject the ca to a bind mount
+```bash
+docker run \
+-it --rm \
+--mount source=ca-vol,target=/opt/ca \
+--mount type=bind,source=${PWD}/ca-backup,target=/opt/export \
+osorenan/simpleca \
+--eject
+```
+### To reinitialize from a ejected tarball, run
+```bash
+docker run \
+-it --rm \
+--mount source=ca-vol,target=/opt/ca \
+--mount type=bind,source=${PWD}/ca-backup,target=/opt/export \
+osorenan/simpleca \
+--re-init
+```
+
 ## debug
 ```bash
 ./debug
@@ -70,6 +92,5 @@ osorenan/simpleca \
 - A more configurable request process.
     - Be able to add more hostnames to a request. 
 - Ability to pass in a certificate signing request (csr) to be signed.
-- Ability to "eject" the root CA private key, for safe storage separately.
 - Support Certificate revocation.
     - How the use case would be for that, is not worked out yet.
