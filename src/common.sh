@@ -1,6 +1,6 @@
 #!/bin/sh
 
-basePath="/opt/ca"
+export basePath="/opt/ca"
 export rootCAPath="${basePath}/root"
 export intermediatePath="${basePath}/intermediate"
 
@@ -17,7 +17,7 @@ export intermediateCsr="$intermediatePath/csr/intermediate.csr.pem"
 export intermediateCert="$intermediatePath/certs/intermediate.cert.pem"
 export certificateChain="$intermediatePath/certs/ca-chain.cert.pem"
 
-export exportDir="${basePath}/export"
+export exportDir="/opt/export"
 
 export serverKey="$intermediatePath/private/${SERVER_CN}.key.pem"
 export serverCsr="${intermediatePath}/csr/${SERVER_CN}.csr"

@@ -82,4 +82,4 @@ echo "Creating certificate chain"
 
 cat $intermediateCert $rootCaCert > $certificateChain
 
-echo "certificate chain can be found at: $certificateChain within the mounted volume."
+echo "done..."

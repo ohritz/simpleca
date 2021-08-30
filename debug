@@ -3,7 +3,7 @@
 docker run \
 -it --rm \
 --env-file ./.env \
---mount source=dev-st,target=/opt/ca \
--v ${PWD}/src:/opt/tools \
+--mount source=nemo2-ca,target=/opt/ca \
+--mount type=bind,source=${PWD}/src,target=/opt/tools \
 --entrypoint="sh" \
 osorenan/simpleca

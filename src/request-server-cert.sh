@@ -31,11 +31,6 @@ openssl req -config $intermediateConfig \
         -subj "/CN=${SERVER_CN}"
 
 # # Step 3: Sign the certificate with the CA we created (it's called self signing) - server.crt
-# openssl x509 -req -days 3650 \
-#         -passin pass:"${rootCaPasswd}" -in $serverCsr \
-#         -CA $rootCaCert -CAkey $rootCAKeyPath -CAcreateserial \
-#         -out $serverCert -extensions req_ext -extfile $configPath
-
 openssl ca -config $intermediateConfig \
         -extensions server_cert -days 375 -notext -md sha256 \
         -passin pass:"$rootCaPasswd" \
