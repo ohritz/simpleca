@@ -8,12 +8,15 @@ echo "Creating root CA key cert pair."
 echo "Enter Root CA Password: "
 rootPasswd="$(. /opt/tools/read-password.sh)"
 
-if [ "(ls -A $rootCAPath)" ]; then 
-  rm -rf $rootCAPath/*  
+if [ -d "$rootCAPath" ]; then 
+  echo "root cert directories found... removing & recreating"
+  rm -rf $rootCAPath 
   mkdir $rootCAPath
 fi
-if [ "(ls -A $intermediatePath)" ]; then
-  rm -rf $intermediatePath/*
+
+if [ -d "$intermediatePath" ]; then
+  echo "intermediate cert directories found... removing & recreating"
+  rm -rf $intermediatePath
   mkdir $intermediatePath
 fi
 
