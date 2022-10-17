@@ -32,7 +32,7 @@ openssl req -config $intermediateConfig \
 
 # # Step 3: Sign the certificate with the CA we created (it's called self signing) - server.crt
 openssl ca -config $intermediateConfig \
-        -extensions server_cert -days 2920 -notext -md sha256 \
+        -extensions server_cert -days 825 -notext -md sha256 \
         -passin pass:"$rootCaPasswd" \
         -in $serverCsr -out $serverCert
 chmod 444 $serverCert
