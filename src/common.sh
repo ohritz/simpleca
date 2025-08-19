@@ -9,60 +9,6 @@ if [[ -z "${_UTILS_SOURCED:-}" ]]; then
 	_UTILS_SOURCED=1
 fi
 
-# Usage text for help handling
-USAGE="Simple CA
-
-Usage:
-  simpleca <command|hostname> [options]
-
-Commands:
-  init        Initialize root and intermediate CA
-  eject       Archive current CA state
-  re-init     Restore CA from archive
-  validate    Validate a certificate/chain
-  version     Print version info
-  help        Show this help
-
-Global options:
-  -h, --help             Show help
-  -q, --quiet            Reduce output
-  -v, --verbose          Increase output (repeatable)
-      --no-color         Disable colors
-      --non-interactive  Fail if input would be prompted
-
-Notes:
-  For backward compatibility, passing a hostname directly issues a server certificate."
-
-parse_global_opts() {
-	QUIET=${QUIET:-0}; VERBOSE=${VERBOSE:-0}; NO_COLOR=${NO_COLOR:-0}; NON_INTERACTIVE=${NON_INTERACTIVE:-0}
-	local help_requested=0
-	while getopts ':hqv-:' opt; do
-		case "$opt" in
-			h) help_requested=1;;
-			q) QUIET=1;;
-			v) VERBOSE=$((VERBOSE+1));;
-			-)
-				case "$OPTARG" in
-					help) help_requested=1;;
-					quiet) QUIET=1;;
-					verbose) VERBOSE=$((VERBOSE+1));;
-					no-color) NO_COLOR=1;;
-					non-interactive) NON_INTERACTIVE=1;;
-					*) fatal "Unknown option: --$OPTARG" 2;;
-				esac;;
-			:) fatal "Missing argument for -$OPTARG" 2;;
-			\?) fatal "Unknown option: -$OPTARG" 2;;
-		esac
-	done
-	shift $((OPTIND-1))
-	OPTIND=1
-	if [[ $help_requested -eq 1 ]]; then
-		printf '%s\n' "${USAGE:-}"
-		return 1
-	fi
-	echo "$@"
-}
-
 load_dotenv() {
 	local f=${1:-".env"}; [[ -f "$f" ]] || return 0
 	while IFS='=' read -r k v; do

@@ -58,20 +58,20 @@ Files likely touched
 ---
 
 ## Phase 3 — Command model and UX
-- [ ] `src/main.sh` dispatches subcommands; unknown subcommand → help + exit 2; `help` or empty → usage + exit 0.
-- [ ] Each subcommand has its own `parse_<cmd>_opts` and `run_<cmd>` following the portable `getopts` long-option mapping via `-:`.
-- [ ] Global flags honored by all subcommands: `--help`, `--quiet`, `--verbose`, `--no-color`, `--non-interactive`.
-- [ ] Add `--version` printing git tag/commit when available.
+- [x] `src/main.sh` dispatches subcommands; unknown subcommand → help + exit 2; `help` or empty → usage + exit 0.
+- [x] Each subcommand has its own `parse_<cmd>_opts` and `run_<cmd>` following the portable `getopts` long-option mapping via `-:`.
+- [x] Global flags honored by all subcommands: `--help`, `--quiet`, `--verbose`, `--no-color`, `--non-interactive`.
+- [x] Add `--version` printing git tag/commit when available.
 
 ---
 
 ## Phase 4 — Dockerfile hygiene (minimal but pinned)
-- [ ] Base: pin to a small image (e.g., `alpine:3.20`). Avoid `:latest`.
-- [ ] Install pinned OpenSSL (e.g., `apk add --no-cache openssl=~3.1 bash`).
-- [ ] Non-root user, executable scripts, and minimal entrypoint.
+- [x] Base: pin to a small image (e.g., `alpine:3.20`). Avoid `:latest`.
+- [x] Install pinned OpenSSL (e.g., `apk add --no-cache openssl=~3.1 bash`).
+- [x] Non-root user, executable scripts, and minimal entrypoint.
 
 Files likely touched
-- [ ] `Dockerfile`
+- [x] `Dockerfile`
 
 ---
 

@@ -10,102 +10,215 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 setup_error_handling
 
 . "${SCRIPT_DIR}/common.sh"
-cwd=${PWD}
 
-# ------------------ Create root CA --------------------------
-echo "Creating root CA key cert pair."
-echo "Enter Root CA Password: "
-rootPasswd="$(. /opt/tools/read-password.sh)"
+print_init_usage() {
+	cat <<'USAGE'
+simpleca init - Initialize root and intermediate CA
 
-if [ -d "$rootCAPath" ]; then
-  echo "root cert directories found... removing & recreating"
-  rm -rf "$rootCAPath"
-  mkdir "$rootCAPath"
-fi
+Usage:
+  simpleca init [options]
 
-if [ -d "$intermediatePath" ]; then
-  echo "intermediate cert directories found... removing & recreating"
-  rm -rf "$intermediatePath"
-  mkdir "$intermediatePath"
-fi
+Options:
+  -f, --force                   Force re-initialization (overwrite existing CA)
+  -k, --key-type <type>         Key type: ec (default) or rsa
+  -r, --rsa-bits <bits>         RSA key size (default: 3072)
+  -e, --ec-curve <curve>        EC curve: prime256v1 (default) or secp384r1
+  -p, --pass-file <file>        Password file for non-interactive mode
+  -h, --help                    Show this help
 
-cd "$rootCAPath"
-mkdir certs crl newcerts private
-chmod 700 private
-touch index.txt
-echo 1000 > serial
-cd "$cwd"
+Examples:
+  simpleca init
+  simpleca init --force
+  simpleca init --key-type rsa --rsa-bits 4096
+  simpleca init --pass-file /run/secrets/ca.pass
+USAGE
+}
 
-dd if=/dev/urandom of="${rootCAPath}/private/.rand" bs=256 count=1
+parse_init_opts() {
+	FORCE=0; KEY_TYPE=''; RSA_BITS=''; EC_CURVE=''; PASS_FILE=''
 
-# Output files
-# # ca.key.pem: Certificate Authority private key file (this shouldn't be shared in real-life)
-# # ca.cert.pem: Certificate Authority trust certificate (this should be shared with users in real-life)
+	while getopts ':fk:r:e:ph-:' opt; do
+		case "$opt" in
+			f) FORCE=1;;
+			k) KEY_TYPE="$OPTARG";;
+			r) RSA_BITS="$OPTARG";;
+			e) EC_CURVE="$OPTARG";;
+			p) PASS_FILE="$OPTARG";;
+			h) print_init_usage; exit 0;;
+			-)
+				case "$OPTARG" in
+					force) FORCE=1;;
+					key-type=*) KEY_TYPE="${OPTARG#key-type=}";;
+					rsa-bits=*) RSA_BITS="${OPTARG#rsa-bits=}";;
+					ec-curve=*) EC_CURVE="${OPTARG#ec-curve=}";;
+					pass-file=*) PASS_FILE="${OPTARG#pass-file=}";;
+					help) print_init_usage; exit 0;;
+					*) fatal "Unknown option: --$OPTARG" 2;;
+				esac;;
+			:) fatal "Missing argument for -$OPTARG" 2;;
+			\?) fatal "Unknown option: -$OPTARG" 2;;
+		esac
+	done
+	shift $((OPTIND-1))
 
-# Generate root CA key using modern genpkey
-if [[ "$KEY_TYPE" == "ec" ]]; then
-	openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:"${EC_CURVE}" \
-		-pkeyopt ec_param_enc:named_curve -aes-256-cbc -pass pass:"${rootPasswd}" \
-		-out "$rootCAKey"
-else
-	openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:"${RSA_BITS}" \
-		-aes-256-cbc -pass pass:"${rootPasswd}" -out "$rootCAKey"
-fi
-chmod 400 "$rootCAKey"
+	# Validate key type if specified
+	if [[ -n "$KEY_TYPE" ]]; then
+		case "$KEY_TYPE" in
+			ec|rsa) ;;
+			*) fatal "Invalid KEY_TYPE: $KEY_TYPE. Must be 'ec' or 'rsa'" 2 ;;
+		esac
+	fi
 
-openssl req -x509 -new -key "$rootCAKey" \
-  -config "$rootConfig" -extensions v3_ca \
-  -sha256 -days 7300 -out "$rootCaCert" -passin pass:"${rootPasswd}" \
-  -subj "/C=${ROOT_COUNTRY}/ST=${ROOT_STATE}/L=${ROOT_LOCALITY}/O=${ROOT_ORG}/OU=${ROOT_ORG} Certificate Authority/CN=${ROOT_ORG} Root CA"
+	# Validate EC curve if specified
+	if [[ -n "$EC_CURVE" ]]; then
+		case "$EC_CURVE" in
+			prime256v1|secp384r1) ;;
+			*) fatal "Invalid EC_CURVE: $EC_CURVE. Must be 'prime256v1' or 'secp384r1'" 2 ;;
+		esac
+	fi
 
-chmod 444 "$rootCaCert"
-echo "Root CA created"
+	# Validate RSA bits if specified
+	if [[ -n "$RSA_BITS" ]]; then
+		if [[ ! "$RSA_BITS" =~ ^[0-9]+$ ]] || [[ "$RSA_BITS" -lt 2048 ]]; then
+			fatal "RSA_BITS must be >= 2048, got: $RSA_BITS" 2
+		fi
+	fi
 
-# ------------------ Create intermediate CA --------------------------
+	# Validate pass file if specified
+	if [[ -n "$PASS_FILE" ]] && [[ ! -f "$PASS_FILE" ]]; then
+		fatal "Password file not found: $PASS_FILE" 2
+	fi
+}
 
-cd "$intermediatePath"
-mkdir certs crl csr newcerts private
-chmod 700 private
-touch index.txt
-echo 1000 > serial
-echo 1000 > "$intermediatePath/crlnumber"
-cd "$cwd"
+run_init() {
+	# Parse options
+	parse_init_opts "$@"
 
-echo "Creating intermediate CA"
-echo "Enter Intermediate CA Password: "
+	# Apply overrides if specified
+	[[ -n "$KEY_TYPE" ]] && export KEY_TYPE
+	[[ -n "$RSA_BITS" ]] && export RSA_BITS
+	[[ -n "$EC_CURVE" ]] && export EC_CURVE
 
-intermediatePasswd="$(. /opt/tools/read-password.sh)"
+	cwd=${PWD}
 
-# Generate intermediate CA key using modern genpkey
-if [[ "$KEY_TYPE" == "ec" ]]; then
-	openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:"${EC_CURVE}" \
-		-pkeyopt ec_param_enc:named_curve -aes-256-cbc -pass pass:"${intermediatePasswd}" \
-		-out "$intermediateKey"
-else
-	openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:"${RSA_BITS}" \
-		-aes-256-cbc -pass pass:"${intermediatePasswd}" -out "$intermediateKey"
-fi
+	# Check if CA already exists
+	if [[ $FORCE -eq 0 ]] && ([[ -d "$rootCAPath" ]] || [[ -d "$intermediatePath" ]]); then
+		fatal "CA already exists. Use --force to re-initialize." 1
+	fi
 
-chmod 400 "$intermediateKey"
+	info "Initializing CA with key type: $KEY_TYPE"
 
-openssl req -config "$intermediateConfig" -new -sha256 \
-      -key "$intermediateKey" \
-      -out "$intermediateCsr" \
-      -passin pass:"${intermediatePasswd}" \
-      -subj "/C=${ROOT_COUNTRY}/ST=${ROOT_STATE}/L=${ROOT_LOCALITY}/O=${ROOT_ORG}/OU=${ROOT_ORG} Certificate Authority/CN=${ROOT_ORG} Intermediate CA"
+	#------------- Password prompts ------------------
+	if [[ -n "$PASS_FILE" ]]; then
+		# Non-interactive mode with password file
+		rootPasswd="$(cat "$PASS_FILE")"
+		intermediatePasswd="$(cat "$PASS_FILE")"
+	else
+		# Interactive mode
+		if [[ ${NON_INTERACTIVE:-0} -eq 1 ]]; then
+			fatal "Non-interactive mode requires --pass-file" 1
+		fi
 
-openssl ca -config "$rootConfig" -extensions v3_intermediate_ca \
-      -days 3650 -notext -md sha256 -batch \
-      -in "$intermediateCsr" \
-      -passin pass:"${rootPasswd}" \
-      -out "$intermediateCert"
+		echo "Enter Root CA Password: "
+		rootPasswd="$(. /opt/tools/read-password.sh)"
 
-chmod 444 "$intermediateCert"
+		echo "Enter Intermediate CA Password: "
+		intermediatePasswd="$(. /opt/tools/read-password.sh)"
+	fi
+	#------------- --------------- ------------------
 
-echo "Intermediate CA created"
+	# ------------------ Create root CA --------------------------
+	info "Creating root CA key cert pair."
 
-echo "Creating certificate chain"
+	if [[ -d "$rootCAPath" ]]; then
+		info "root cert directories found... removing & recreating"
+		rm -rf "$rootCAPath"
+		mkdir "$rootCAPath"
+	fi
 
-cat "$intermediateCert" "$rootCaCert" > "$certificateChain"
+	if [[ -d "$intermediatePath" ]]; then
+		info "intermediate cert directories found... removing & recreating"
+		rm -rf "$intermediatePath"
+		mkdir "$intermediatePath"
+	fi
 
-echo "done..."
+	cd "$rootCAPath"
+	mkdir certs crl newcerts private
+	chmod 700 private
+	touch index.txt
+	echo 1000 > serial
+	cd "$cwd"
+
+	dd if=/dev/urandom of="${rootCAPath}/private/.rand" bs=256 count=1
+
+	# Output files
+	# # ca.key.pem: Certificate Authority private key file (this shouldn't be shared in real-life)
+	# # ca.cert.pem: Certificate Authority trust certificate (this should be shared with users in real-life)
+
+	# Generate root CA key using modern genpkey
+	if [[ "$KEY_TYPE" == "ec" ]]; then
+		openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:"${EC_CURVE}" \
+			-pkeyopt ec_param_enc:named_curve -aes-256-cbc -pass pass:"${rootPasswd}" \
+			-out "$rootCAKey"
+	else
+		openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:"${RSA_BITS}" \
+			-aes-256-cbc -pass pass:"${rootPasswd}" -out "$rootCAKey"
+	fi
+	chmod 400 "$rootCAKey"
+
+	openssl req -x509 -new -key "$rootCAKey" \
+	  -config "$rootConfig" -extensions v3_ca \
+	  -sha256 -days 7300 -out "$rootCaCert" -passin pass:"${rootPasswd}" \
+	  -subj "/C=${ROOT_COUNTRY}/ST=${ROOT_STATE}/L=${ROOT_LOCALITY}/O=${ROOT_ORG}/OU=${ROOT_ORG} Certificate Authority/CN=${ROOT_ORG} Root CA"
+
+	chmod 444 "$rootCaCert"
+	info "Root CA created"
+
+	# ------------------ Create intermediate CA --------------------------
+
+	cd "$intermediatePath"
+	mkdir certs crl csr newcerts private
+	chmod 700 private
+	touch index.txt
+	echo 1000 > serial
+	echo 1000 > "$intermediatePath/crlnumber"
+	cd "$cwd"
+
+	info "Creating intermediate CA"
+
+	# Generate intermediate CA key using modern genpkey
+	if [[ "$KEY_TYPE" == "ec" ]]; then
+		openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:"${EC_CURVE}" \
+			-pkeyopt ec_param_enc:named_curve -aes-256-cbc -pass pass:"${intermediatePasswd}" \
+			-out "$intermediateKey"
+	else
+		openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:"${RSA_BITS}" \
+			-aes-256-cbc -pass pass:"${intermediatePasswd}" -out "$intermediateKey"
+	fi
+
+	chmod 400 "$intermediateKey"
+
+	openssl req -config "$intermediateConfig" -new -sha256 \
+		  -key "$intermediateKey" \
+		  -out "$intermediateCsr" \
+		  -passin pass:"${intermediatePasswd}" \
+		  -subj "/C=${ROOT_COUNTRY}/ST=${ROOT_STATE}/L=${ROOT_LOCALITY}/O=${ROOT_ORG}/OU=${ROOT_ORG} Certificate Authority/CN=${ROOT_ORG} Intermediate CA"
+
+	openssl ca -config "$rootConfig" -extensions v3_intermediate_ca \
+		  -days 3650 -notext -md sha256 -batch \
+		  -in "$intermediateCsr" \
+		  -passin pass:"${rootPasswd}" \
+		  -out "$intermediateCert"
+
+	chmod 444 "$intermediateCert"
+
+	# Create certificate chain
+	cat "$intermediateCert" "$rootCaCert" > "$certificateChain"
+	chmod 444 "$certificateChain"
+
+	info "Intermediate CA created"
+	info "CA initialization complete"
+}
+
+# Run the init command
+run_init "$@"
