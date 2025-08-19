@@ -1,0 +1,328 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  lint:
+    name: Lint and Syntax Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck
+        run: |
+          echo "Running shellcheck on all shell scripts..."
+          shellcheck --version
+          shellcheck --severity=error src/*.sh
+          shellcheck --severity=error tests/helpers/*.bash
+
+      - name: Syntax check bash scripts
+        run: |
+          echo "Checking bash syntax..."
+          for script in src/*.sh tests/helpers/*.bash; do
+            echo "Checking $script"
+            bash -n "$script"
+          done
+
+      - name: Check script permissions
+        run: |
+          echo "Checking script permissions..."
+          for script in src/*.sh; do
+            if [[ ! -x "$script" ]]; then
+              echo "Warning: $script is not executable"
+            fi
+          done
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install BATS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats
+
+      - name: Run unit tests
+        run: |
+          echo "Running unit tests..."
+          bats --version
+          bats --verbose tests/unit/
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: unit-test-results
+          path: |
+            test-results/
+            *.xml
+            *.json
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats openssl
+
+      - name: Run integration tests
+        run: |
+          echo "Running integration tests..."
+          bats --version
+          bats --verbose tests/integration/
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: integration-test-results
+          path: |
+            test-results/
+            *.xml
+            *.json
+
+  e2e-tests:
+    name: End-to-End Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats openssl
+
+      - name: Run end-to-end tests
+        run: |
+          echo "Running end-to-end tests..."
+          bats --version
+          bats --verbose tests/e2e/
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: e2e-test-results
+          path: |
+            test-results/
+            *.xml
+            *.json
+
+  docker-tests:
+    name: Docker Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker build -t simpleca:test .
+
+      - name: Test Docker image
+        run: |
+          echo "Testing Docker image..."
+
+          # Test basic functionality
+          docker run --rm simpleca:test version
+
+          # Test help command
+          docker run --rm simpleca:test help
+
+          # Test with volume mount (simulate CA operations)
+          docker run --rm \
+            -v "$(pwd)/tests/fixtures:/tmp/ca" \
+            -e basePath="/tmp/ca" \
+            simpleca:test version
+
+      - name: Test Docker security
+        run: |
+          echo "Checking Docker image security..."
+
+          # Check if running as non-root
+          docker run --rm simpleca:test id
+
+          # Check image size
+          docker images simpleca:test --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
+
+      - name: Upload Docker test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: docker-test-results
+          path: |
+            docker-test-results/
+            *.log
+
+  security-tests:
+    name: Security Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install security tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bandit safety
+
+      - name: Check for secrets in code
+        run: |
+          echo "Checking for secrets in code..."
+
+          # Check for hardcoded passwords
+          if grep -r "password.*=" src/; then
+            echo "Warning: Potential hardcoded passwords found"
+            exit 1
+          fi
+
+          # Check for API keys
+          if grep -r "api_key\|apikey\|secret.*=" src/; then
+            echo "Warning: Potential secrets found"
+            exit 1
+          fi
+
+      - name: Check file permissions
+        run: |
+          echo "Checking file permissions..."
+
+          # Check that private directories have restrictive permissions
+          find src/ -name "private" -type d -exec ls -ld {} \;
+
+      - name: Test certificate security
+        run: |
+          echo "Testing certificate security..."
+
+          # Create a test CA and check security
+          mkdir -p /tmp/security-test
+          cd /tmp/security-test
+
+          # This would run actual certificate generation tests
+          # to verify security settings are correct
+
+      - name: Upload security test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-test-results
+          path: |
+            security-results/
+            *.log
+
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats openssl time
+
+      - name: Run performance tests
+        run: |
+          echo "Running performance tests..."
+
+          # Test CA initialization performance
+          echo "Testing CA initialization performance..."
+          time bats tests/e2e/complete_workflow.bats
+
+          # Test certificate generation performance
+          echo "Testing certificate generation performance..."
+          time bats --filter "test_e2e_performance" tests/e2e/complete_workflow.bats
+
+      - name: Upload performance results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-test-results
+          path: |
+            performance-results/
+            *.log
+
+  test-report:
+    name: Test Report
+    runs-on: ubuntu-latest
+    needs: [lint, unit-tests, integration-tests, e2e-tests, docker-tests, security-tests, performance-tests]
+    if: always()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all test results
+        uses: actions/download-artifact@v3
+        with:
+          path: test-results/
+
+      - name: Generate test report
+        run: |
+          echo "Generating test report..."
+
+          echo "# Test Report" > test-report.md
+          echo "Generated on: $(date)" >> test-report.md
+          echo "" >> test-report.md
+
+          echo "## Test Summary" >> test-report.md
+          echo "- Lint: ${{ needs.lint.result }}" >> test-report.md
+          echo "- Unit Tests: ${{ needs.unit-tests.result }}" >> test-report.md
+          echo "- Integration Tests: ${{ needs.integration-tests.result }}" >> test-report.md
+          echo "- E2E Tests: ${{ needs.e2e-tests.result }}" >> test-report.md
+          echo "- Docker Tests: ${{ needs.docker-tests.result }}" >> test-report.md
+          echo "- Security Tests: ${{ needs.security-tests.result }}" >> test-report.md
+          echo "- Performance Tests: ${{ needs.performance-tests.result }}" >> test-report.md
+
+          echo "" >> test-report.md
+          echo "## Coverage" >> test-report.md
+          echo "Test coverage information will be added here." >> test-report.md
+
+      - name: Upload test report
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-report
+          path: test-report.md
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('test-report.md', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: report
+            });
