@@ -8,19 +8,20 @@ How to use this checklist
 ---
 
 ## Phase 0 — Preconditions and guardrails
-- [ ] Ensure `openssl` and `bash` are available at runtime. If missing, print a friendly error and exit.
-- [ ] Add strict mode to all scripts under `src/`: shebang `#!/usr/bin/env bash`, then `set -Eeuo pipefail`, `IFS=$'\n\t'`, and `umask 077` for key material.
-- [ ] Add traps: `trap 'on_err $LINENO' ERR` and `trap 'on_sig' SIGINT SIGTERM` with minimal handlers printing concise errors (no secrets).
-- [ ] Implement global option parsing once (quiet/verbose/no-color/non-interactive/help), reusable by subcommands (see `Bash-ninja rules`).
-- [ ] Implement `.env` loader with precedence: CLI > env > .env > defaults.
+- [x] Ensure `openssl` and `bash` are available at runtime. If missing, print a friendly error and exit.
+- [x] Add strict mode to all scripts under `src/`: shebang `#!/usr/bin/env bash`, then `set -Eeuo pipefail`, `IFS=$'\n\t'`, and `umask 077` for key material.
+- [x] Add traps: `trap 'on_err $LINENO' ERR` and `trap 'on_sig' SIGINT SIGTERM` with minimal handlers printing concise errors (no secrets).
+- [x] Implement global option parsing once (quiet/verbose/no-color/non-interactive/help), reusable by subcommands (see `Bash-ninja rules`).
+- [x] Implement `.env` loader with precedence: CLI > env > .env > defaults.
 
 Files likely touched
-- [ ] `src/main.sh` (single entrypoint; subcommands `init`, `issue`, `eject`, `re-init`, `validate`, `version`, `help`)
-- [ ] `src/common.sh` (shared helpers for parsing, logging, dotenv, path helpers)
+- [x] `src/main.sh` (single entrypoint; subcommands `init`, `issue`, `eject`, `re-init`, `validate`, `version`, `help`)
+- [x] `src/common.sh` (shared helpers for parsing, logging, dotenv, path helpers)
+- [x] `src/utils.sh` (centralized error handling with filename reporting)
 
 Definition of done for Phase 0
-- [ ] `bash -n src/*.sh` passes
-- [ ] `shellcheck src/*.sh` has no errors of severity error
+- [x] `bash -n src/*.sh` passes
+- [x] `shellcheck src/*.sh` has no errors of severity error
 
 ---
 
