@@ -1,0 +1,224 @@
+---
+description: Provide actionable rules and sample OpenSSL commands that agents should follow when generating, validating, distributing, and rotating TLS certificates and private keys.
+globs:
+alwaysApply: false
+---
+
+# Cursor IDE rules — SSL/TLS certificate creation & OpenSSL guidance
+
+> Purpose: Provide actionable rules and sample OpenSSL commands that agents should follow when generating, validating, distributing, and rotating TLS certificates and private keys.
+
+---
+
+## Rules (summary)
+
+Each rule below includes: id, title, severity, when_to_apply, check, and recommendation. The agent should attempt to run the checks where feasible (file format validation, openssl commands, CI checks) and surface human-review items when necessary.
+
+### R001 — Use modern cryptography (no RSA < 2048)
+- **Severity:** ERROR
+- **When to apply:** Any private key or CSR generation
+- **Check:** RSA key < 2048 bits, or usage of deprecated algorithms (MD5, SHA1)
+- **Recommendation:** Use at least RSA-3072 or RSA-4096 for long-lived keys, or prefer elliptic curves (P-256 / prime256v1, P-384) for better performance and smaller keys. Avoid SHA-1 signatures; use SHA-256 or stronger.
+
+### R002 — Prefer EC keys for new keys unless compatibility requires RSA
+- **Severity:** WARN
+- **When to apply:** New service certificates
+- **Check:** RSA keys used where EC is available and acceptable
+- **Recommendation:** Use ECDSA P-256 or P-384 for most server certificates unless a specific client or policy requires RSA.
+
+### R003 — Always use Subject Alternative Names (SAN)
+- **Severity:** ERROR
+- **When to apply:** Any CSR or certificate for a hostname
+- **Check:** Certificates rely on Common Name (CN) instead of SAN entries
+- **Recommendation:** Populate SANs (DNS and IP entries) in the CSR / certificate. Do not rely on CN for hostname validation.
+
+### R004 — Enforce short lifetimes and automated rotation
+- **Severity:** WARN
+- **When to apply:** Production certificates
+- **Check:** Certificates with expiry > 825 days or noted as long-lived manually-managed
+- **Recommendation:** Use short validity periods (90 days is common for automated issuance like Let's Encrypt; enterprise may use up to 1 year) and automate renewal & rollout. Rotate keys on reissue unless explicit key continuity is required.
+
+### R005 — Use appropriate key formats and protect private keys
+- **Severity:** ERROR
+- **When to apply:** Any stored private key
+- **Check:** Private keys present without filesystem protections or unencrypted on shared storage
+- **Recommendation:** Store private keys with strict permissions (`chmod 600`) and ownership. Prefer encrypted private keys on disk (PKCS#8 encrypted) or use hardware-backed stores (HSM, cloud KMS, TPM). Never commit private keys to source control.
+
+### R006 — Use PKCS#8 for private key storage when possible
+- **Severity:** INFO
+- **When to apply:** Private key provisioning
+- **Check:** Keys are in legacy PEM format with unencrypted headers
+- **Recommendation:** Convert to PKCS#8 (PEM) and use encryption: `openssl pkcs8 -topk8 -v2 aes-256-cbc -in key.pem -out key.pk8.pem`.
+
+### R007 — Use a CSR and a CA for production; avoid self-signed certs for public services
+- **Severity:** ERROR
+- **When to apply:** Certificates for public-facing or multi-service systems
+- **Check:** Self-signed certs used in production-facing services
+- **Recommendation:** Generate a CSR and have it signed by a trusted CA (public CA or internal root/intermediate CA). Use self-signed only for short-lived local testing with clear documentation.
+
+### R008 — Build PKI with an intermediate CA and offline root
+- **Severity:** WARN
+- **When to apply:** Organization-level PKI design
+- **Check:** Single CA used as both root and issuing CA
+- **Recommendation:** Use an offline root CA and one or more intermediate issuing CAs. Keep root private key offline and locked in secure storage. Use intermediate CAs for day-to-day signing.
+
+### R009 — Include proper X.509 extensions (Key Usage & Extended Key Usage)
+- **Severity:** ERROR
+- **When to apply:** Any leaf or CA certificate issuance
+- **Check:** Missing or incorrect keyUsage / extendedKeyUsage (e.g., serverAuth, clientAuth)
+- **Recommendation:** Set keyUsage and extendedKeyUsage appropriately. Example for server cert: `keyUsage = digitalSignature,keyEncipherment` and `extendedKeyUsage = serverAuth`.
+
+### R010 — Validate certificate chains and CRL/OCSP configuration
+- **Severity:** ERROR
+- **When to apply:** Certificate deployment
+- **Check:** No chain verification or OCSP/CRL endpoints missing where expected
+- **Recommendation:** Verify full chain with `openssl verify -CAfile chain.pem cert.pem`. Configure OCSP stapling on TLS servers and provide CRL/OCSP endpoints in certs as needed.
+
+### R011 — Verify certs with OpenSSL during deployment & CI
+- **Severity:** ERROR
+- **When to apply:** CI/CD image and deployment steps
+- **Check:** No automated `openssl x509` / `openssl verify` checks in CI
+- **Recommendation:** Add verification steps: `openssl x509 -noout -text -in cert.pem` and `openssl verify -CAfile ca-chain.pem cert.pem` to catch mis-signed certificates early.
+
+### R012 — Use secure temporary files and avoid leaking secrets in logs
+- **Severity:** ERROR
+- **When to apply:** Any script or CI job handling keys
+- **Check:** Keys or passphrases echoed in CI logs or written to world-readable temp files
+- **Recommendation:** Use file permissions, delete temp files immediately, and avoid exposing passphrases in logs. In CI, use secret storage and pass secrets as environment variables to ephemeral processes.
+
+### R013 — Prefer AEAD and modern cipher suites when configuring TLS
+- **Severity:** WARN
+- **When to apply:** TLS server configuration
+- **Check:** Usage of old ciphers (RC4, 3DES) or lack of ECDHE preference
+- **Recommendation:** Configure servers to prefer ECDHE and AEAD ciphers (AES-GCM/CHACHA20-POLY1305). Disable SSLv2/SSLv3 and TLSv1.0 where feasible.
+
+### R014 — Use secure DH parameters or prefer ECDHE over plain DHE
+- **Severity:** INFO
+- **When to apply:** When DHE is used or server config includes dhparam
+- **Check:** dhparam < 2048 bits or missing when DHE required
+- **Recommendation:** Generate dhparam >= 2048 if DHE must be used, or prefer ECDHE which avoids this cost. Example: `openssl dhparam -out dhparam.pem 2048`.
+
+### R015 — Provide instructions for format conversions (PEM, DER, PKCS12)
+- **Severity:** INFO
+- **When to apply:** Packaging or client consumption
+- **Check:** No guidance for converting cert/key formats
+- **Recommendation:** Include example commands for conversions (see examples in the rule file). Use PKCS12 for importing certs+keys into Windows/iOS where needed.
+
+### R016 — Protect passphrases and enable automation-friendly key formats
+- **Severity:** WARN
+- **When to apply:** Automated renewal & deployment
+- **Check:** Use of passphrase-protected private keys in fully automated systems without a secrets store
+- **Recommendation:** For fully automated systems, use keys stored in secure vaults or use unencrypted keys only inside secure ephemeral build agents with restricted access. Prefer using KMS/HSM where possible.
+
+### R017 — Use Certificate Transparency (CT) for public certificates where practical
+- **Severity:** INFO
+- **When to apply:** Publicly trusted certificates
+- **Check:** Public certificate issuance without CT considerations
+- **Recommendation:** Ensure public CAs log the certificate to CT logs (usually handled by CA). Monitor CT logs for unexpected certificates for your domains.
+
+### R018 — Label certs with metadata and maintain inventory
+- **Severity:** INFO
+- **When to apply:** Organization-wide certificate management
+- **Check:** No inventory or metadata for certs (owner, expiry, purpose)
+- **Recommendation:** Keep a central inventory with owner, environment, expiry, SANs, and rotation plan; integrate alerts for upcoming expiry.
+
+### R019 — Rotate private keys on compromise and periodically as policy dictates
+- **Severity:** ERROR
+- **When to apply:** Incident response and scheduled maintenance
+- **Check:** No documented rotation procedure
+- **Recommendation:** Have documented, tested procedures for key revocation, replacement, and certificate re-issuance. For suspected compromise, revoke and replace immediately.
+
+### R020 — Document OpenSSL configuration snippets and recommended commands
+- **Severity:** INFO
+- **When to apply:** Any repo that provisions certs
+- **Check:** No sample `openssl.cnf` or command examples
+- **Recommendation:** Provide a minimal `openssl.cnf` template and common commands for CSR generation, signing, verification, and conversions.
+
+---
+
+## Example OpenSSL commands (agent may include these in docs or CI)
+
+> **Generate an EC private key (P-256) and CSR**
+> ```bash
+> openssl ecparam -name prime256v1 -genkey -noout -out server.key
+> openssl req -new -key server.key -out server.csr -subj "/CN=example.com" -addext "subjectAltName = DNS:example.com, DNS:www.example.com"
+> ```
+
+> **Generate RSA 3072 key and CSR**
+> ```bash
+> openssl genrsa -out server.key 3072
+> openssl req -new -key server.key -out server.csr -subj "/CN=example.com" -addext "subjectAltName = DNS:example.com"
+> ```
+
+> **Sign CSR with intermediate CA (openssl ca style)**
+> ```bash
+> openssl ca -config openssl.cnf -extensions server_cert -days 825 -notext -batch -in server.csr -out server.crt
+> ```
+
+> **Verify certificate chain**
+> ```bash
+> openssl verify -CAfile chain.pem server.crt
+> ```
+
+> **View cert details**
+> ```bash
+> openssl x509 -noout -text -in server.crt
+> ```
+
+> **Convert PEM key+cert to PKCS#12**
+> ```bash
+> openssl pkcs12 -export -out bundle.p12 -inkey server.key -in server.crt -certfile chain.pem
+> ```
+
+> **Create encrypted PKCS#8 key**
+> ```bash
+> openssl pkcs8 -topk8 -v2 aes-256-cbc -in server.key -out server.pk8.pem
+> ```
+
+> **Check TLS connection to server (s_client)**
+> ```bash
+> openssl s_client -connect example.com:443 -servername example.com -showcerts
+> ```
+
+---
+
+## Minimal `openssl.cnf` snippet for generating CSRs with SANs
+
+(Include this in repos so agents can create CSRs non-interactively.)
+
+```ini
+[ req ]
+default_bits = 3072
+prompt = no
+default_md = sha256
+distinguished_name = dn
+req_extensions = req_ext
+
+[ dn ]
+C=US
+ST=State
+L=City
+O=Example Org
+OU=IT
+CN = example.com
+
+[ req_ext ]
+subjectAltName = @alt_names
+
+[ alt_names ]
+DNS.1 = example.com
+DNS.2 = www.example.com
+```
+
+---
+
+## Suggested CI checks the agent should add
+- `openssl x509 -noout -text -in cert.pem` to ensure SANs and expiry are present.
+- `openssl verify -CAfile ca-chain.pem cert.pem` to validate chains.
+- `bash` script to assert key length and type (RSA size or EC curve).
+- Secrets scanning to detect private keys accidentally committed.
+
+---
+
+*Generated by assistant — saved as a Cursor rule document. If you want this exported to a different format (JSON, Rego), or to add automated Cursor checks (commands that Cursor can run), tell me and I’ll produce them.*
+

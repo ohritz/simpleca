@@ -1,0 +1,75 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+## Simple CA — Project Overview
+
+### What this project does
+A minimal, dockerized toolset to bootstrap a private certificate authority (CA) for isolated environments. It creates a root CA and an intermediate issuing CA on a mounted volume, then issues server TLS certificates (with DNS SANs) for services so that clients can trust all services via a single public certificate chain.
+
+- **Intended use**: Local development, single-cluster environments (e.g., a Kubernetes cluster or a local Compose stack) where you control both clients and services.
+- **Not production-ready PKI**: This is a convenience tool, not a full PKI solution. It favors simplicity over comprehensive security controls and automation.
+
+### How it works (high level)
+- The Docker image (Alpine + OpenSSL) exposes helper scripts via the container entrypoint `main.sh`.
+- You mount a persistent volume at `/opt/ca` to keep keys and certs.
+- Commands:
+  - `--init`: Bootstraps the CA hierarchy on the volume.
+    - Root CA: RSA-4096, self-signed, ~20 years (7300 days), SHA-512
+    - Intermediate CA: RSA-4096, signed by Root, ~10 years (3650 days), SHA-256
+    - Produces the chain at `intermediate/certs/ca-chain.cert.pem`
+  - `<hostname>`: Issues a server certificate for the given DNS name.
+    - Server key: RSA-2048 (password-protected)
+    - CSR includes SAN: `DNS:<hostname>`
+    - Signed by Intermediate (~8 years / 2920 days), SHA-256
+    - Exports: PEM key (PKCS#8), server cert, and a `.pfx` bundle; copies artifacts to `/opt/export`
+  - `--eject`: Archives the entire CA (`/opt/ca`) to `/opt/export/ca.tar.gz` for backup/portability.
+  - `--re-init [ca.tar.gz]`: Restores CA state from a previously ejected tarball in `/opt/export`.
+
+### Quick usage snapshot
+- Build image: `docker build . -t osorenan/simpleca`
+- Create persistent volume: `docker volume create ca-vol`
+- Initialize CA:
+  - Provide env vars via `.env`: `ROOT_ORG`, `ROOT_COUNTRY`, `ROOT_STATE`, `ROOT_LOCALITY`
+  - Run:
+    ```bash
+    docker run -it --rm \
+      --env-file ./.env \
+      --mount source=ca-vol,target=/opt/ca \
+      osorenan/simpleca --init
+    ```
+- Issue cert for a hostname, exporting artifacts to a bind mount:
+  ```bash
+  mkdir -p ./certs
+  docker run -it --rm \
+    --mount source=ca-vol,target=/opt/ca \
+    --mount type=bind,source=${PWD}/certs,target=/opt/export \
+    osorenan/simpleca my.service.local
+  ```
+
+### Outputs (key locations)
+- Root: `/opt/ca/root` (private key, root cert)
+- Intermediate: `/opt/ca/intermediate` (key, CSR, cert, chain)
+- Issued server certs: `/opt/ca/intermediate/certs/<hostname>.cert.pem`
+- Per-request exports: `/opt/ca/output/<hostname>/` → copied to `/opt/export/`
+  - `<hostname>.pkcs8.key.pem`, `<hostname>.cert.pem`, `ca-chain.cert.pem`, `<hostname>.pfx`
+
+### Scope, constraints, and caveats
+- Interactive password prompts (Root, Intermediate, server keys) via the container.
+- No certificate revocation tracking or automated rotation.
+- Opinionated defaults (RSA keys, long lifetimes) geared toward convenience in closed environments.
+- Handle private keys with care; the mounted volume contains sensitive material.
+
+### Planned next features
+- Simple configuration of certificate expiration (tunable validity periods).
+- Better helpers to bootstrap certificates for Kubernetes `cert-manager`.
+- Modernization of TLS and crypto defaults.
+
+Additional ideas noted for future work include: multi-SAN requests, accepting external CSRs for signing, and certificate revocation support.
+
+### References
+- `Readme.md` contains full quickstart and examples.
+- Inspired by:
+  - `https://karneliuk.com/2021/02/sec-3-building-your-own-containerised-pki-root-ca-with-linux-and-docker-to-simplify-and-secure-network-automation/`
+  - `https://jamielinux.com/docs/openssl-certificate-authority`

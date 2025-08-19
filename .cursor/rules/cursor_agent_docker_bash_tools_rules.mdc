@@ -1,0 +1,216 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+# Cursor IDE rule file — Docker images for bash-script-based tools
+
+> Purpose: Provide Cursor IDE rules and guidance for agents creating tools packaged in Docker images and driven primarily by bash scripts. Each rule includes an id, title, severity, when_to_apply, check, and recommendation.
+
+---
+
+## Rules
+
+### R001 — Pin base image
+- **Severity:** ERROR
+- **When to apply:** Any Dockerfile with a `FROM` line
+- **Check:** `FROM .*(:latest|\s*$)`
+- **Recommendation:** Always pin to a specific, immutable tag or digest (example: `FROM debian:12-slim` or `FROM ubuntu@sha256:...`). Avoid `:latest` or unpinned references.
+
+### R002 — Use a small, purpose-built base image
+- **Severity:** WARN
+- **When to apply:** Images that will run single-purpose bash tools
+- **Check:** Base image should be one of: alpine, debian:*-slim, ubuntu:*-slim, distroless
+- **Recommendation:** Prefer minimal OS images (slim/alpine/distroless) to reduce attack surface and image size. If you need glibc or other tooling, pick the smallest compatible base.
+
+### R003 — Non-root runtime user
+- **Severity:** ERROR
+- **When to apply:** Any runnable container image
+- **Check:** Dockerfile lacks `USER` or uses root uid 0 at runtime
+- **Recommendation:** Create and use a non-root user (e.g. `RUN addgroup -S app && adduser -S app -G app` and `USER app`) for running the tool. Only escalate privileges in build steps if required.
+
+### R004 — Pin package installs and avoid upgrades at build time
+- **Severity:** WARN
+- **When to apply:** Dockerfiles that install packages (apt, apk, yum)
+- **Check:** Dockerfile contains `apt-get upgrade` or unpinned package installs
+- **Recommendation:** Avoid `apt-get upgrade` during image builds. Pin package versions where feasible and use `--no-install-recommends` (apt) or minimal package sets. Use `apt-get update` then `apt-get install -y ... && rm -rf /var/lib/apt/lists/*` in the same layer.
+
+### R005 — Keep layers minimal & cache-friendly
+- **Severity:** INFO
+- **When to apply:** Any Dockerfile
+- **Check:** Dockerfile with many small RUN lines that could be concatenated
+- **Recommendation:** Combine related RUN commands to reduce image layers and make build caching effective.
+
+### R006 — Multi-stage builds for build-time artifacts
+- **Severity:** WARN
+- **When to apply:** Builds that compile or assemble artifacts
+- **Check:** Single-stage builds copying build tools and final artifacts together
+- **Recommendation:** Use multi-stage builds to leave compilers and dev tools out of the final runtime image.
+
+### R007 — Entrypoint & CMD semantics
+- **Severity:** ERROR
+- **When to apply:** Any Dockerfile that defines how the container starts
+- **Check:** No `ENTRYPOINT` defined or `ENTRYPOINT` uses shell form over exec form
+- **Recommendation:** Prefer `ENTRYPOINT ["/usr/bin/tini", "--", "/opt/mytool/entrypoint.sh"]` and use exec JSON form for ENTRYPOINT/CMD to avoid extra shell layers and signal issues.
+
+### R008 — Use a minimal init (tini/dumb-init)
+- **Severity:** WARN
+- **When to apply:** Containers that run long-lived processes or traps
+- **Check:** Dockerfile does not install or use an init process and ENTRYPOINT is a shell script
+- **Recommendation:** Add a minimal init (tini or dumb-init) as PID 1 to properly forward signals and reap zombies.
+
+### R009 — Bash scripts must declare bash and safety flags
+- **Severity:** ERROR
+- **When to apply:** Any `.sh` script added to the image
+- **Check:** Script missing shebang or missing `set -euo pipefail`
+- **Recommendation:** All scripts must start with `#!/usr/bin/env bash` and include at top: `set -euo pipefail`.
+
+### R010 — Trap signals and exit cleanly
+- **Severity:** WARN
+- **When to apply:** Scripts intended to run as container PID 1 or long-running processes
+- **Check:** No trap for SIGINT/SIGTERM in long-running scripts
+- **Recommendation:** Add signal handlers: `trap 'cleanup; exit 0' SIGINT SIGTERM` and ensure cleanup functions release resources and forward exit codes.
+
+### R011 — Lint bash with shellcheck
+- **Severity:** ERROR
+- **When to apply:** Any bash script in the repo
+- **Check:** No invocation of `shellcheck` in CI or build step
+- **Recommendation:** Run `shellcheck` on all scripts and ensure severity-level issues are addressed. Add `shellcheck` to CI: `shellcheck scripts/*.sh`.
+
+### R012 — Static syntax check for bash scripts
+- **Severity:** ERROR
+- **When to apply:** Any bash script
+- **Check:** No `bash -n` or similar in CI
+- **Recommendation:** Add `bash -n` (syntax check) to CI: `bash -n /path/to/script`.
+
+### R013 — Provide tests (unit/integration) and CI run
+- **Severity:** WARN
+- **When to apply:** Any tool image intended for production use
+- **Check:** No tests or CI checks present
+- **Recommendation:** Add simple tests for scripts (use bats or shunit2 or plain `bash` integration tests), and run them in CI.
+
+### R014 — Write logs to stdout/stderr
+- **Severity:** ERROR
+- **When to apply:** Any runtime script logging
+- **Check:** Scripts write logs to files inside container instead of STDOUT/STDERR
+- **Recommendation:** Send logs to stdout/stderr so orchestrators can capture them. Optionally support `--log-file` for portability but default to stdout.
+
+### R015 — Avoid embedding secrets in image
+- **Severity:** ERROR
+- **When to apply:** Any Dockerfile or script containing credentials
+- **Check:** `ENV`, `ARG` or files with obvious secrets (password=, key=, secret=)
+- **Recommendation:** Do not bake secrets into images. Use runtime secrets and document how to provide them.
+
+### R016 — Explicit required environment variables and defaults
+- **Severity:** INFO
+- **When to apply:** Tools that rely on env vars
+- **Check:** No documentation or `ENV` defaults for expected variables
+- **Recommendation:** Document required environment variables in README and enforce at runtime with clear errors if missing.
+
+### R017 — File and directory ownership and permissions
+- **Severity:** ERROR
+- **When to apply:** Any Dockerfile that copies files into image
+- **Check:** Files copied into image are owned by root and not writable/readable appropriately
+- **Recommendation:** Set correct permissions and ownership and avoid making files world-writable.
+
+### R018 — Make scripts executable
+- **Severity:** ERROR
+- **When to apply:** Any copied script files
+- **Check:** Script file mode lacks executable bit
+- **Recommendation:** Ensure `COPY --chown=...` and `RUN chmod +x /path/to/script` or make executable locally before copy.
+
+### R019 — Healthcheck
+- **Severity:** INFO
+- **When to apply:** Tools that run as a service or long-lived process
+- **Check:** No `HEALTHCHECK` present in Dockerfile
+- **Recommendation:** Add `HEALTHCHECK` to the Dockerfile to allow orchestrators to detect unhealthy containers.
+
+### R020 — OCI labels and metadata
+- **Severity:** INFO
+- **When to apply:** Any production image
+- **Check:** No `LABEL`s for `org.opencontainers.image.name/version/description`
+- **Recommendation:** Add standard labels (name, version, description, authors, vcs-ref, source) to identify images.
+
+### R021 — Avoid interactive commands during build
+- **Severity:** ERROR
+- **When to apply:** Any Dockerfile build step
+- **Check:** RUN commands that require user interaction
+- **Recommendation:** Use non-interactive flags and ensure builds are CI-friendly.
+
+### R022 — Atomic updates and temp handling
+- **Severity:** WARN
+- **When to apply:** Scripts that write files to disk
+- **Check:** Scripts write directly to target files without atomic patterns
+- **Recommendation:** Use temporary files and atomic moves.
+
+### R023 — Respect TERM and other runtime environment
+- **Severity:** INFO
+- **When to apply:** Interactive or TTY-aware tools
+- **Check:** Tool ignores TERM/NO_COLOR/CI flags and prints raw control codes
+- **Recommendation:** Detect `NO_COLOR` and `CI` environment variables and provide `--no-color` or `--quiet` flags where appropriate.
+
+### R024 — Use reproducible builds and include checksums
+- **Severity:** WARN
+- **When to apply:** Dockerfiles that download remote artifacts at build time
+- **Check:** `wget`/`curl` used without checksum verification
+- **Recommendation:** When downloading artifacts, verify checksums and pin versions.
+
+### R025 — Minimal surface area in PATH
+- **Severity:** INFO
+- **When to apply:** Container images with many binaries
+- **Check:** Adds many directories to PATH unnecessarily
+- **Recommendation:** Keep PATH minimal and document where tool binaries live.
+
+### R026 — Clean build cache and temp files
+- **Severity:** INFO
+- **When to apply:** Build steps that produce caches (npm, pip, apt lists)
+- **Check:** Leftover cache directories present in final image
+- **Recommendation:** Remove caches in the same RUN step used to create them.
+
+### R027 — Minimal runtime surface - remove dev tools
+- **Severity:** WARN
+- **When to apply:** Final image contains compilers or package managers
+- **Check:** `gcc`, `make`, or package manager present in final image
+- **Recommendation:** Strip dev packages in final stage; use multi-stage build.
+
+### R028 — Provide a clear README and usage examples
+- **Severity:** INFO
+- **When to apply:** Any published tool image
+- **Check:** No README or usage examples for container invocation
+- **Recommendation:** Add README.md with examples showing common env vars, volumes and inputs/outputs.
+
+### R029 — Image signing & provenance (optional but recommended)
+- **Severity:** INFO
+- **When to apply:** Production or distributed images
+- **Check:** No indication of image signing or provenance
+- **Recommendation:** Consider using Notary/Cosign to sign images and include provenance information in CI.
+
+### R030 — CI build reproducibility and caching
+- **Severity:** WARN
+- **When to apply:** CI-managed builds
+- **Check:** CI ignores cache or rebuilds everything each run
+- **Recommendation:** Configure CI to reuse Docker build cache or to build image layers deterministically.
+
+---
+
+## Example agent checks and quick checklist
+- `grep -E "^FROM" Dockerfile` to locate base image
+- `shellcheck` and `bash -n` for script checks
+- `docker build --no-cache` and `docker run` smoke tests in CI
+- `docker inspect` to assert labels and user
+
+**Quick checklist for the agent when authoring a Dockerfile + bash tool:**
+1. Pin base image.
+2. Add non-root user.
+3. Add tini as entrypoint.
+4. Copy only needed files and make scripts executable.
+5. Add shell safety flags + traps in scripts.
+6. Lint + unit test scripts.
+7. Add HEALTHCHECK and labels.
+8. Document usage.
+
+---
+
+*Generated by assistant — if you want this exported to JSON/rego or converted into Cursor’s native rule DSL, tell me and I’ll do it.*
+
