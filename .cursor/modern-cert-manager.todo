@@ -109,29 +109,29 @@ Files created/touched
 ## Phase 6 — cert-manager export subcommand (Issuer)
 Goal: export artifacts/manifests so Kubernetes cert-manager can use the intermediate CA as a CA Issuer. Do NOT change existing CA layout.
 
-- [ ] Implement `simpleca cert-manager export` subcommand.
-- [ ] Options (portable `getopts` with long mappings):
-  - [ ] `--ns|--namespace` (required)
-  - [ ] `--issuer-name` (default `ca-issuer`)
-  - [ ] `--secret-name` (default `ca-key-pair`)
-  - [ ] `--out` (default `/opt/export/manifests`)
-  - [ ] `--crl` (repeatable)
-  - [ ] `--ocsp` (repeatable)
-  - [ ] `--force` (allow overwrite)
-- [ ] Export unencrypted PKCS#8 intermediate private key into export dir ONLY (never modify `/opt/ca`).
-- [ ] Build full chain: `intermediate.cert.pem + root/ca.cert.pem` → `issuer.fullchain.crt.pem`.
-- [ ] Render `secret.yaml` with base64 (no wraps): `type: kubernetes.io/tls`, keys: `tls.crt` (full chain), `tls.key` (unencrypted intermediate key).
-- [ ] Render `issuer.yaml` that references the Secret; include optional `crlDistributionPoints` and `ocspServers` arrays when provided.
-- [ ] Print clear warning that an unencrypted key is written; treat export dir as sensitive.
-- [ ] Validation: verify chain, and that intermediate pubkey parses; optional YAML syntax check if `yq` present.
+- [x] Implement `simpleca cert-manager export` subcommand.
+- [x] Options (portable `getopts` with long mappings):
+  - [x] `--ns|--namespace` (required)
+  - [x] `--issuer-name` (default `ca-issuer`)
+  - [x] `--secret-name` (default `ca-key-pair`)
+  - [x] `--out` (default `/opt/export/manifests`)
+  - [x] `--crl` (repeatable)
+  - [x] `--ocsp` (repeatable)
+  - [x] `--force` (allow overwrite)
+- [x] Export unencrypted PKCS#8 intermediate private key into export dir ONLY (never modify `/opt/ca`).
+- [x] Build full chain: `intermediate.cert.pem + root/ca.cert.pem` → `issuer.fullchain.crt.pem`.
+- [x] Render `secret.yaml` with base64 (no wraps): `type: kubernetes.io/tls`, keys: `tls.crt` (full chain), `tls.key` (unencrypted intermediate key).
+- [x] Render `issuer.yaml` that references the Secret; include optional `crlDistributionPoints` and `ocspServers` arrays when provided.
+- [x] Print clear warning that an unencrypted key is written; treat export dir as sensitive.
+- [x] Validation: verify chain, and that intermediate pubkey parses; optional YAML syntax check if `yq` present.
 
 Files likely touched
-- [ ] `src/cert-manager.sh` (parse + run)
-- [ ] `src/common.sh` (paths: `rootCaCert`, `intermediateKey`, `intermediateCert`, `certificateChain`)
+- [x] `src/cert-manager.sh` (parse + run)
+- [x] `src/common.sh` (paths: `rootCaCert`, `intermediateKey`, `intermediateCert`, `certificateChain`)
 
 Quick verification
-- [ ] `openssl verify -CAfile <root>/ca.cert.pem <intermediate>.cert.pem`
-- [ ] `base64 -w0` used for both key and chain in manifests
+- [x] `openssl verify -CAfile <root>/ca.cert.pem <intermediate>.cert.pem`
+- [x] `base64 -w0` used for both key and chain in manifests
 - [ ] `kubectl apply -f <out>/<ns>/<issuer-name>/secret.yaml` (manual env) succeeds
 
 ---

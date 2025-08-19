@@ -59,6 +59,7 @@ Commands:
   eject       Archive current CA state
   re-init     Restore CA from archive
   validate    Validate a certificate/chain
+  cert-manager  Export cert-manager Issuer/Secret manifests
   version     Print version info
   help        Show this help
 
@@ -119,6 +120,9 @@ case "$SUBCOMMAND" in
 		;;
 	validate)
 		. "${SCRIPT_DIR}/validate.sh" "$@"
+		;;
+	cert-manager)
+		. "${SCRIPT_DIR}/cert-manager.sh" "$@"
 		;;
 	version)
 		printf 'simpleca %s\n' "$VERSION"
