@@ -1,0 +1,194 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+### Bash-ninja rules for Simple CA scripts
+
+Goals
+- Predictable, safe behavior in both interactive and CI contexts.
+- Stable, extensible subcommands with well-defined options and precedence.
+- Minimal surprises: strict modes, clear errors, no secret leakage, idempotency where practical.
+
+Standards (apply to all scripts under `src/`)
+- Shebang and strict mode:
+  - Use `#!/usr/bin/env bash`
+  - First lines: `set -Eeuo pipefail` and `IFS=$'\n\t'`
+  - Add `umask 077` for key material creation and temp files
+- Traps and cleanup:
+  - `trap 'on_err $LINENO' ERR` and `trap 'on_sig' SIGINT SIGTERM`
+  - `on_err` should print a concise message to stderr and exit non-zero; do not dump secrets
+- Quoting and safety:
+  - Double-quote all variable expansions; avoid word-splitting and globbing
+  - Prefer `[[ ... ]]` for tests; use arrays for argument lists
+  - Use `mktemp -d` for temp dirs; remove with `rm -rf` in `on_sig`/`on_err`
+- Dependencies:
+  - Verify required tools (`openssl`, `bash`) at startup; friendly error if missing
+
+Command model
+- Single entrypoint `src/main.sh` with subcommands:
+  - `init`, `issue`, `eject`, `re-init`, `validate`, `version`, `help`
+- Subcommand discovery: if `$1` is empty or `help`, print help and exit 0; unknown subcommand → print help and exit 2
+- Each subcommand has its own `parse_<cmd>_opts` and `run_<cmd>` functions
+
+Options & arguments
+- Short options via POSIX `getopts`
+- Long options supported via a `-:` sentinel pattern (portable) mapped to short options
+- No positional ambiguity: require `--` to terminate option parsing when passing through args to underlying tools
+- Common global flags (apply to all subcommands): `-h|--help`, `-q|--quiet`, `-v|--verbose`, `--no-color`, `--non-interactive`
+
+Parsing skeleton (portable, no GNU getopt dependency)
+```bash
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+
+print_usage() {
+  cat <<'USAGE'
+Simple CA
+
+Usage:
+  simpleca <command> [options]
+
+Commands:
+  init        Initialize root and intermediate CA
+  issue       Issue a server certificate
+  eject       Archive current CA state
+  re-init     Restore CA from archive
+  validate    Validate a certificate/chain
+  version     Print version info
+  help        Show this help
+
+Global options:
+  -h, --help          Show help
+  -q, --quiet         Reduce output
+  -v, --verbose       Increase output
+      --no-color      Disable colors
+      --non-interactive  Fail if input would be prompted
+USAGE
+}
+
+fatal() { printf '\e[31m[ERR]\e[0m %s\n' "$1" >&2; exit "${2:-1}"; }
+info()  { [[ ${QUIET:-0} -eq 1 ]] || printf '[INFO] %s\n' "$1"; }
+debug() { [[ ${VERBOSE:-0} -ge 1 ]] && printf '[DBG] %s\n' "$1"; }
+
+parse_global_opts() {
+  QUIET=0; VERBOSE=0; NO_COLOR=0; NON_INTERACTIVE=0
+  # long->short mapping via -:
+  while getopts ':hqv-:' opt; do
+    case "$opt" in
+      h) print_usage; exit 0;;
+      q) QUIET=1;;
+      v) VERBOSE=$((VERBOSE+1));;
+      -)
+        case "$OPTARG" in
+          help) print_usage; exit 0;;
+          quiet) QUIET=1;;
+          verbose) VERBOSE=$((VERBOSE+1));;
+          no-color) NO_COLOR=1;;
+          non-interactive) NON_INTERACTIVE=1;;
+          *) fatal "Unknown option: --$OPTARG" 2;;
+        esac;;
+      :) fatal "Missing argument for -$OPTARG" 2;;
+      \?) fatal "Unknown option: -$OPTARG" 2;;
+    esac
+  done
+  shift $((OPTIND-1))
+  OPTIND=1
+  echo "$@" # print remaining args for caller to capture
+}
+
+# Example subcommand parser
+parse_issue_opts() {
+  SERVER_CN=''; SERVER_SANS=''; KEY_TYPE=''; RSA_BITS=''; EC_CURVE=''; PASS_FILE=''
+  local _args; _args=$(parse_global_opts "$@") || exit $?
+  # shellcheck disable=SC2206
+  set -- ${_args}
+  while getopts ':c:s:k:r:e:p:-:' opt; do
+    case "$opt" in
+      c) SERVER_CN="$OPTARG";;
+      s) SERVER_SANS="$OPTARG";;
+      k) KEY_TYPE="$OPTARG";;
+      r) RSA_BITS="$OPTARG";;
+      e) EC_CURVE="$OPTARG";;
+      p) PASS_FILE="$OPTARG";;
+      -)
+        case "$OPTARG" in
+          cn=*) SERVER_CN="${OPTARG#cn=}";;
+          sans=*) SERVER_SANS="${OPTARG#sans=}";;
+          key-type=*) KEY_TYPE="${OPTARG#key-type=}";;
+          rsa-bits=*) RSA_BITS="${OPTARG#rsa-bits=}";;
+          ec-curve=*) EC_CURVE="${OPTARG#ec-curve=}";;
+          pass-file=*) PASS_FILE="${OPTARG#pass-file=}";;
+          *) fatal "Unknown --$OPTARG" 2;;
+        esac;;
+      :) fatal "Missing argument for -$OPTARG" 2;;
+      \?) fatal "Unknown option: -$OPTARG" 2;;
+    esac
+  done
+  shift $((OPTIND-1))
+  [[ -n "$SERVER_CN" ]] || fatal 'Missing required: --cn <hostname>' 2
+}
+```
+
+Configuration precedence
+- CLI options > environment variables > `.env` file > hardcoded defaults
+- Load `.env` only if present; do not overwrite already-set env values
+- Example loader:
+```bash
+load_dotenv() {
+  local f=${1:-".env"}; [[ -f "$f" ]] || return 0
+  # Export only lines like KEY=VALUE, ignoring comments and blanks
+  while IFS='=' read -r k v; do
+    [[ "$k" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    [[ -v $k ]] && continue
+    export "$k"="$v"
+  done < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$f" | sed 's/^export //')
+}
+```
+
+Password and non-interactive handling
+- Provide `--pass-file` or `--pass-env VAR` to avoid interactive prompts in CI
+- If `--non-interactive` is set and no password provided, exit with a clear error
+- Never echo passphrases; prefer `-pass file:"$PASS_FILE"` for OpenSSL
+
+Validation and normalization
+- Enumerations: `KEY_TYPE` ∈ {`ec`,`rsa`}; `EC_CURVE` ∈ {`prime256v1`,`secp384r1`}
+- Numeric ranges: `RSA_BITS` ≥ 2048; `LEAF_DAYS` ≤ 825 by default
+- SANs: allow comma-separated `DNS:x,IP:y`; validate each entry; default to `DNS:${SERVER_CN}` if empty
+- Paths: assert mounted directories exist and are writable; compute absolute paths early
+
+Logging and UX
+- Support `--verbose` (multi-level) and `--quiet`
+- Respect `NO_COLOR`/`--no-color`
+- Write logs to stdout/stderr; never to files by default
+- Print actionable errors: what failed, which file/arg, and how to fix
+
+Idempotency and safety
+- Re-running `init` should require `--force` if directories already exist
+- Use atomic writes for generated files: write to temp, then `mv` into place
+- Set correct permissions explicitly after creation
+
+CI and quality gates
+- Lint: `shellcheck` on all `src/*.sh`; `bash -n` for syntax check
+- Unit/integration tests with `bats` for: parsing, env precedence, dry-run behavior
+- Smoke tests (non-interactive): initialize, issue, verify chain; ensure no `-legacy` needed
+
+Compatibility and portability
+- Prefer Bash features; ensure the image includes `bash`
+- Do not depend on GNU `getopt`; the skeleton above works on Alpine/BusyBox
+- Keep old flag aliases temporarily; print deprecation notices with a removal version
+
+Examples (proposed)
+- Issue EC cert with SANs and non-interactive password file:
+  - `simpleca issue --cn api.local --sans DNS:api.local,DNS:api --key-type ec --ec-curve prime256v1 --pass-file /run/secret/server.pass`
+- Issue RSA cert using env overrides:
+  - `KEY_TYPE=rsa RSA_BITS=3072 simpleca issue -c web.local`
+- Initialize with force re-create:
+  - `simpleca init --force`
+
+Implementation notes for this repo
+- Update `Dockerfile` to install `bash` and keep image small (`alpine:3.x` + `apk add --no-cache bash openssl`)
+- Convert existing scripts to the skeleton pattern; centralize parsing in `main.sh`
+- Keep sensitive defaults off: require explicit flags/env for destructive operations
+- Add `--version` flag printing git commit/tag to aid debugging
