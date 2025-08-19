@@ -76,6 +76,35 @@ load_dotenv() {
 require_cmd bash
 require_cmd openssl
 
+# Load environment variables with defaults
+load_dotenv
+
+# Certificate generation defaults
+: "${KEY_TYPE:=ec}"
+: "${EC_CURVE:=prime256v1}"
+: "${RSA_BITS:=3072}"
+: "${LEAF_DAYS:=398}"
+: "${PKCS8_ITER:=204000}"
+: "${PFX_ITER:=204000}"
+: "${SERVER_SANS:=}"
+
+# Validate key type
+case "$KEY_TYPE" in
+	ec|rsa) ;;
+	*) fatal "Invalid KEY_TYPE: $KEY_TYPE. Must be 'ec' or 'rsa'" 1 ;;
+esac
+
+# Validate EC curve
+case "$EC_CURVE" in
+	prime256v1|secp384r1) ;;
+	*) fatal "Invalid EC_CURVE: $EC_CURVE. Must be 'prime256v1' or 'secp384r1'" 1 ;;
+esac
+
+# Validate RSA bits
+if [[ "$KEY_TYPE" == "rsa" ]] && [[ "$RSA_BITS" -lt 2048 ]]; then
+	fatal "RSA_BITS must be >= 2048, got: $RSA_BITS" 1
+fi
+
 # Paths and files
 basePath="/opt/ca"
 rootCAPath="${basePath}/root"

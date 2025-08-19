@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -39,12 +42,20 @@ dd if=/dev/urandom of="${rootCAPath}/private/.rand" bs=256 count=1
 # # ca.key.pem: Certificate Authority private key file (this shouldn't be shared in real-life)
 # # ca.cert.pem: Certificate Authority trust certificate (this should be shared with users in real-life)
 
-openssl genrsa -aes256 -passout pass:"${rootPasswd}" -out "$rootCAKey" 4096
+# Generate root CA key using modern genpkey
+if [[ "$KEY_TYPE" == "ec" ]]; then
+	openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:"${EC_CURVE}" \
+		-pkeyopt ec_param_enc:named_curve -aes-256-cbc -pass pass:"${rootPasswd}" \
+		-out "$rootCAKey"
+else
+	openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:"${RSA_BITS}" \
+		-aes-256-cbc -pass pass:"${rootPasswd}" -out "$rootCAKey"
+fi
 chmod 400 "$rootCAKey"
 
 openssl req -x509 -new -key "$rootCAKey" \
   -config "$rootConfig" -extensions v3_ca \
-  -sha512 -days 7300 -out "$rootCaCert" -passin pass:"${rootPasswd}" \
+  -sha256 -days 7300 -out "$rootCaCert" -passin pass:"${rootPasswd}" \
   -subj "/C=${ROOT_COUNTRY}/ST=${ROOT_STATE}/L=${ROOT_LOCALITY}/O=${ROOT_ORG}/OU=${ROOT_ORG} Certificate Authority/CN=${ROOT_ORG} Root CA"
 
 chmod 444 "$rootCaCert"
@@ -65,9 +76,15 @@ echo "Enter Intermediate CA Password: "
 
 intermediatePasswd="$(. /opt/tools/read-password.sh)"
 
-openssl genrsa -aes256 \
-      -passout pass:"${intermediatePasswd}" \
-      -out "$intermediateKey" 4096
+# Generate intermediate CA key using modern genpkey
+if [[ "$KEY_TYPE" == "ec" ]]; then
+	openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:"${EC_CURVE}" \
+		-pkeyopt ec_param_enc:named_curve -aes-256-cbc -pass pass:"${intermediatePasswd}" \
+		-out "$intermediateKey"
+else
+	openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:"${RSA_BITS}" \
+		-aes-256-cbc -pass pass:"${intermediatePasswd}" -out "$intermediateKey"
+fi
 
 chmod 400 "$intermediateKey"
 
@@ -78,7 +95,7 @@ openssl req -config "$intermediateConfig" -new -sha256 \
       -subj "/C=${ROOT_COUNTRY}/ST=${ROOT_STATE}/L=${ROOT_LOCALITY}/O=${ROOT_ORG}/OU=${ROOT_ORG} Certificate Authority/CN=${ROOT_ORG} Intermediate CA"
 
 openssl ca -config "$rootConfig" -extensions v3_intermediate_ca \
-      -days 3650 -notext -md sha256 \
+      -days 3650 -notext -md sha256 -batch \
       -in "$intermediateCsr" \
       -passin pass:"${rootPasswd}" \
       -out "$intermediateCert"

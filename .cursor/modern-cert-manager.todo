@@ -26,34 +26,34 @@ Definition of done for Phase 0
 ---
 
 ## Phase 1 — Modernize certificate generation (avoid `-legacy`)
-- [ ] Default key type to EC P-256 (`KEY_TYPE=ec`, `EC_CURVE=prime256v1`); allow `KEY_TYPE=rsa` with `RSA_BITS>=3072`.
-- [ ] Replace legacy keygens with `openssl genpkey` everywhere (root, intermediate, server).
-- [ ] Store keys in PKCS#8; when encrypting, use PBES2 + AES-256 and PBKDF2 with configurable iterations.
-- [ ] CSR: use `-sha256`; add SANs via `-addext "subjectAltName = ${SERVER_SANS:-DNS:${SERVER_CN}}"`.
-- [ ] Signing: `openssl ca -batch -md sha256 -days ${LEAF_DAYS:-398}`; default `LEAF_DAYS=398`.
-- [ ] PKCS#12 export: use AES and SHA-256 (no legacy provider): `-keypbe AES-256-CBC -certpbe AES-256-CBC -macalg sha256 -iter ${PFX_ITER:-204000} -maciter`.
-- [ ] PKCS#8 conversion for app-consumed server key: `openssl pkcs8 -topk8 -v2 aes-256-cbc -iter ${PKCS8_ITER:-204000}`.
+- [x] Default key type to EC P-256 (`KEY_TYPE=ec`, `EC_CURVE=prime256v1`); allow `KEY_TYPE=rsa` with `RSA_BITS>=3072`.
+- [x] Replace legacy keygens with `openssl genpkey` everywhere (root, intermediate, server).
+- [x] Store keys in PKCS#8; when encrypting, use PBES2 + AES-256 and PBKDF2 with configurable iterations.
+- [x] CSR: use `-sha256`; add SANs via `-addext "subjectAltName = ${SERVER_SANS:-DNS:${SERVER_CN}}"`.
+- [x] Signing: `openssl ca -batch -md sha256 -days ${LEAF_DAYS:-398}`; default `LEAF_DAYS=398`.
+- [x] PKCS#12 export: use AES and SHA-256 (no legacy provider): `-keypbe AES-256-CBC -certpbe AES-256-CBC -macalg sha256 -iter ${PFX_ITER:-204000} -maciter`.
+- [x] PKCS#8 conversion for app-consumed server key: `openssl pkcs8 -topk8 -v2 aes-256-cbc -iter ${PKCS8_ITER:-204000}`.
 
 Files likely touched
-- [ ] `src/init.sh` (root/intermediate keygen → genpkey; keep sha256; respect KEY_TYPE and defaults)
-- [ ] `src/request-server-cert.sh` (server keygen → genpkey; SANs; -batch signing; PKCS#8 and PKCS#12 options)
+- [x] `src/init.sh` (root/intermediate keygen → genpkey; keep sha256; respect KEY_TYPE and defaults)
+- [x] `src/request-server-cert.sh` (server keygen → genpkey; SANs; -batch signing; PKCS#8 and PKCS#12 options)
 
 Quick verification (no `-legacy` expected)
-- [ ] `openssl x509 -noout -text -in <server>.cert.pem | grep -E "Signature Algorithm|Subject Alternative Name"`
-- [ ] `openssl verify -CAfile ca-chain.cert.pem <server>.cert.pem`
-- [ ] `openssl pkcs12 -in <server>.pfx -nodes -passin pass:"$PASS" -info >/dev/null`
-- [ ] `openssl pkcs8 -in <server>.pkcs8.key.pem -passin pass:"$PASS" -nocrypt -out /dev/null`
+- [x] `openssl x509 -noout -text -in <server>.cert.pem | grep -E "Signature Algorithm|Subject Alternative Name"`
+- [x] `openssl verify -CAfile ca-chain.cert.pem <server>.cert.pem`
+- [x] `openssl pkcs12 -in <server>.pfx -nodes -passin pass:"$PASS" -info >/dev/null`
+- [x] `openssl pkcs8 -in <server>.pkcs8.key.pem -passin pass:"$PASS" -nocrypt -out /dev/null`
 
 ---
 
 ## Phase 2 — OpenSSL config cleanup
-- [ ] Remove deprecated `nsCertType` and `nsComment` from `src/openssl-*.cnf`.
-- [ ] Ensure `default_md = sha256` and `copy_extensions = copy` (already present for intermediate).
-- [ ] Server extensions present: `keyUsage = critical, digitalSignature, keyEncipherment` and `extendedKeyUsage = serverAuth`.
+- [x] Remove deprecated `nsCertType` and `nsComment` from `src/openssl-*.cnf`.
+- [x] Ensure `default_md = sha256` and `copy_extensions = copy` (already present for intermediate).
+- [x] Server extensions present: `keyUsage = critical, digitalSignature, keyEncipherment` and `extendedKeyUsage = serverAuth`.
 
 Files likely touched
-- [ ] `src/openssl-root.cnf`
-- [ ] `src/openssl-intermediate.cnf`
+- [x] `src/openssl-root.cnf`
+- [x] `src/openssl-intermediate.cnf`
 
 ---
 
