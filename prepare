@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+docker volume rm ca-vol
+docker volume create ca-vol
+
+docker build -t osorenan/simpleca:latest .
+
+

@@ -1,0 +1,94 @@
+---
+description: When writing tests for bats
+globs:
+alwaysApply: false
+---
+# Cursor Rule File: Bash Tests with Make & Bats
+
+## Purpose
+Ensure that Bash test suites written with [Bats](mdc:https:/github.com/bats-core/bats-core) and orchestrated with `make` are clean, maintainable, and CI/CD-friendly.
+
+---
+
+## Rules
+
+### 1. Structure & Organization
+- All tests must live in a dedicated `tests/` directory.
+- Test files must use the `.bats` extension.
+- Each test file should focus on a single script or component (e.g., `tests/my_script.bats`).
+- Group related assertions into a single test function to avoid duplication.
+
+### 2. Makefile Integration
+- The Makefile must define a `test` target:
+  ```make
+  test:
+  	bats tests
+  ```
+- If using `bats-support`, `bats-assert`, etc., ensure they are installed via a `deps` target.
+- `make test` must fail if **any** test fails (non-zero exit code).
+
+### 3. Writing Tests
+- Test functions must be prefixed with `test_`:
+  ```bash
+  @test "test_script_runs_successfully" {
+    run ./my_script.sh arg1 arg2
+    assert_success
+    assert_output --partial "expected output"
+  }
+  ```
+- Always use `run` to execute commands (captures exit code and output).
+- Use `assert_success` / `assert_failure` instead of checking `$status`.
+- Use `assert_output` or `assert_line` for validation; avoid raw `grep` unless necessary.
+- Prefer relative paths (`./script.sh`) over absolute.
+
+### 4. Style & Readability
+- Each test should have a descriptive name explaining its intent.
+- Keep one logical assertion per test function; split when needed.
+- Add comments for non-obvious tests.
+- Use `setup()` for initialization and `teardown()` for cleanup.
+
+### 5. Best Practices
+- Tests must be deterministic (no reliance on external state, network calls, or random sleeps).
+- For file-based tests, use `mktemp` and clean up in `teardown()`.
+- Avoid relying on environment variables unless set explicitly in the test.
+- Keep tests fast and minimal.
+
+### 6. CI/CD Integration
+- The `test` target must run inside CI/CD pipelines (GitHub Actions, GitLab, Azure DevOps, etc.).
+- Provide a `deps` target to install test dependencies (`bats-core`, `bats-support`, `bats-assert`).
+- CI must run `make test` on every push and pull request.
+
+---
+
+## Example
+
+**Makefile**
+```make
+.PHONY: deps test clean
+
+deps:
+	git submodule update --init --recursive
+
+test:
+	bats tests
+
+clean:
+	rm -rf tmp/
+```
+
+**tests/example.bats**
+```bash
+setup() {
+  TMPFILE="$(mktemp)"
+}
+
+teardown() {
+  rm -f "$TMPFILE"
+}
+
+@test "test_script_outputs_expected_message" {
+  run ./my_script.sh "hello"
+  assert_success
+  assert_output "Hello, world!"
+}
+```

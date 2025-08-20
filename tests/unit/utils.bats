@@ -3,7 +3,7 @@
 # Unit tests for utils.sh script
 # Tests utility functions and error handling
 
-load "helpers/test_helper.bash"
+load "../helpers/test_helper.bash"
 
 setup() {
     setup_test_dirs "utils-unit"

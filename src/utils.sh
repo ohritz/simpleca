@@ -43,7 +43,10 @@ info()  {
 }
 
 debug() {
-    [[ ${VERBOSE:-0} -ge 1 ]] && printf '[DBG] %s\n' "$1"
+    if [[ ${VERBOSE:-0} -ge 1 ]]; then
+        printf '[DBG] %s\n' "$1"
+    fi
+    return 0
 }
 
 # Utility functions
@@ -55,4 +58,22 @@ require_cmd() {
 # TTY cleanup for password reading
 cleanup_tty() {
     stty echo 2>/dev/null || true
+}
+
+# Read a password using configured or discoverable helper
+read_password() {
+    local reader="${READ_PASSWORD_CMD:-}"
+    if [[ -n "$reader" ]]; then
+        . "$reader"
+        return 0
+    fi
+    if command -v read-password.sh >/dev/null 2>&1; then
+        . "$(command -v read-password.sh)"
+        return 0
+    fi
+    if [[ -x /opt/tools/read-password.sh ]]; then
+        . /opt/tools/read-password.sh
+        return 0
+    fi
+    fatal "Password reader not found (set READ_PASSWORD_CMD or ensure read-password.sh in PATH)" 2
 }

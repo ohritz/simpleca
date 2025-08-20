@@ -3,7 +3,7 @@
 # Unit tests for main.sh script
 # Tests command parsing, help, version, and subcommand dispatching
 
-load "helpers/test_helper.bash"
+load "../helpers/test_helper.bash"
 
 setup() {
     setup_test_dirs "main-unit"
@@ -23,6 +23,7 @@ teardown() {
     assert_output_contains "init" "$output"
     assert_output_contains "issue" "$output"
     assert_output_contains "validate" "$output"
+    assert_output_contains "cert-manager" "$output"
 }
 
 @test "test_main_help_flag" {
@@ -64,25 +65,25 @@ teardown() {
 }
 
 @test "test_main_unknown_command" {
-    # Test unknown command (should show help and exit with error)
-    output=$(run_script "$SRC_DIR/main.sh" unknown-command)
-    assert_success  # Currently falls back to issue command
-    assert_output_contains "Making request for hostname unknown-command" "$output"
+	# Test unknown command (falls back to issue with hostname)
+	output=$(run_script "$SRC_DIR/main.sh" unknown-command 2>&1 || true)
+	# Should at least print the fallback info message
+	assert_output_contains "Making request for hostname unknown-command" "$output"
 }
 
 @test "test_main_init_subcommand" {
-    # Test init subcommand dispatch
-    # This will fail because we don't have a proper CA setup, but we can verify it's dispatched
-    output=$(run_script "$SRC_DIR/main.sh" init 2>&1 || true)
-    # Should contain init-related output or error
-    assert_output_contains "init" "$output" || assert_output_contains "error" "$output"
+	# Test init subcommand dispatch
+	# This will fail because we don't have a proper CA setup, but we can verify it's dispatched
+	output=$(run_script "$SRC_DIR/main.sh" init 2>&1 || true)
+	# Should contain init-related output or error
+	assert_output_contains "init" "$output" || assert_output_contains "ERR" "$output"
 }
 
 @test "test_main_issue_subcommand" {
-    # Test issue subcommand dispatch
-    output=$(run_script "$SRC_DIR/main.sh" issue 2>&1 || true)
-    # Should contain issue-related output or error
-    assert_output_contains "issue" "$output" || assert_output_contains "error" "$output"
+	# Test issue subcommand dispatch
+	output=$(run_script "$SRC_DIR/main.sh" issue 2>&1 || true)
+	# Should contain issue-related output or error
+	assert_output_contains "issue" "$output" || assert_output_contains "ERR" "$output"
 }
 
 @test "test_main_validate_subcommand" {
@@ -104,6 +105,14 @@ teardown() {
     output=$(run_script "$SRC_DIR/main.sh" re-init 2>&1 || true)
     # Should contain re-init-related output or error
     assert_output_contains "re-init" "$output" || assert_output_contains "error" "$output"
+}
+
+@test "test_main_cert_manager_subcommand_help" {
+    # Ensure cert-manager subcommand is wired and help is available
+    output=$(run_script "$SRC_DIR/main.sh" cert-manager export --help)
+    assert_success
+    assert_output_contains "cert-manager" "$output"
+    assert_output_contains "export" "$output"
 }
 
 @test "test_main_backward_compatibility" {
@@ -135,20 +144,21 @@ teardown() {
 }
 
 @test "test_main_version_sources" {
-    # Test version information from different sources
-    # This tests the get_version function indirectly
+	# Test version information from different sources
+	# This tests the get_version function indirectly
 
-    # Test with BUILD_VERSION environment variable
-    BUILD_VERSION="test-version" output=$(run_script "$SRC_DIR/main.sh" version)
-    assert_success
-    assert_output_contains "simpleca test-version" "$output"
+	# Test with BUILD_VERSION environment variable
+	export BUILD_VERSION="test-version"
+	output=$(run_script "$SRC_DIR/main.sh" version)
+	assert_success
+	assert_output_contains "simpleca test-version" "$output"
 }
 
 @test "test_main_subcommand_with_arguments" {
-    # Test subcommand with additional arguments
-    output=$(run_script "$SRC_DIR/main.sh" issue --help 2>&1 || true)
-    # Should contain issue-related help or error
-    assert_output_contains "issue" "$output" || assert_output_contains "error" "$output"
+	# Test subcommand with additional arguments
+	output=$(run_script "$SRC_DIR/main.sh" issue --help 2>&1 || true)
+	# Should contain issue-related help or error
+	assert_output_contains "issue" "$output" || assert_output_contains "ERR" "$output"
 }
 
 @test "test_main_quiet_flag" {

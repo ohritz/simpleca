@@ -47,17 +47,19 @@ case "$EC_CURVE" in
 esac
 
 # Validate RSA bits
-if [[ "$KEY_TYPE" == "rsa" ]] && [[ "$RSA_BITS" -lt 2048 ]]; then
+if [[ "$KEY_TYPE" == "rsa" ]] && [[ "${RSA_BITS:-0}" -lt 2048 ]]; then
 	fatal "RSA_BITS must be >= 2048, got: $RSA_BITS" 1
 fi
 
-# Paths and files
-basePath="/opt/ca"
-rootCAPath="${basePath}/root"
-intermediatePath="${basePath}/intermediate"
+# Paths and files (respect env overrides)
+: "${basePath:=/opt/ca}"
+: "${rootCAPath:=${basePath}/root}"
+: "${intermediatePath:=${basePath}/intermediate}"
 
-rootConfig="/opt/tools/openssl-root.cnf"
-intermediateConfig="/opt/tools/openssl-intermediate.cnf"
+: "${rootConfig:=/opt/tools/openssl-root.cnf}"
+: "${intermediateConfig:=/opt/tools/openssl-intermediate.cnf}"
+
+: "${exportDir:=/opt/export}"
 
 rootCAKey="${rootCAPath}/private/ca.key.pem"
 rootCaCert="${rootCAPath}/certs/ca.cert.pem"
@@ -66,8 +68,6 @@ intermediateKey="${intermediatePath}/private/intermediate.key.pem"
 intermediateCsr="${intermediatePath}/csr/intermediate.csr.pem"
 intermediateCert="${intermediatePath}/certs/intermediate.cert.pem"
 certificateChain="${intermediatePath}/certs/ca-chain.cert.pem"
-
-exportDir="/opt/export"
 
 : "${SERVER_CN:=}"
 serverKey="${intermediatePath}/private/${SERVER_CN}.key.pem"

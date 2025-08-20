@@ -62,8 +62,10 @@ parse_reinit_opts() {
 		ARCHIVE_FILE="${ARCHIVE_FILE}.tar.gz"
 	fi
 
-	# Set full path to export directory
-	ARCHIVE_FILE="${exportDir}/${ARCHIVE_FILE}"
+	# If the archive file is not an absolute path, prepend exportDir
+	if [[ "$ARCHIVE_FILE" != /* ]]; then
+		ARCHIVE_FILE="${exportDir}/${ARCHIVE_FILE}"
+	fi
 }
 
 run_reinit() {
@@ -88,7 +90,7 @@ run_reinit() {
 	info "Restoring CA from: $ARCHIVE_FILE"
 
 	# Extract archive
-	if tar -zxf "$ARCHIVE_FILE" -C / 2>/dev/null; then
+	if tar -zxf "$ARCHIVE_FILE" -C "$(dirname "$basePath")" 2>/dev/null; then
 		info "✓ CA restored successfully"
 
 		# Validate restored CA

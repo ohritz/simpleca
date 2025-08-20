@@ -8,11 +8,11 @@ help:
 	@echo "Simple CA - Available targets:"
 	@echo ""
 	@echo "Testing:"
-	@echo "  test              - Run all tests"
+	@echo "  test              - Run unit, integration, and e2e tests"
 	@echo "  test-unit         - Run unit tests only"
 	@echo "  test-integration  - Run integration tests only"
 	@echo "  test-e2e          - Run end-to-end tests only"
-	@echo "  test-all          - Run all tests with verbose output"
+	@echo "  test-all          - Run unit, integration, and e2e with verbose output"
 	@echo ""
 	@echo "Quality:"
 	@echo "  lint              - Run linting and syntax checks"
@@ -63,10 +63,19 @@ check-shellcheck:
 install-deps: check-bats check-shellcheck
 	@echo "Development dependencies installed"
 
-# Run all tests
-test: check-bats
-	@echo "Running all tests..."
-	bats tests/
+# Run all tests (excluding legacy by default)
+# Previously ran: bats tests/
+# Now explicitly run the three maintained suites to avoid legacy tests implicitly
+# and to mirror CI behavior
+#
+# Note: each sub-target runs check-bats
+#
+# Usage: make test
+#
+# For legacy tests, use: make test-legacy
+#
+
+test: test-unit test-integration test-e2e
 
 # Run unit tests only
 test-unit: check-bats
@@ -83,10 +92,14 @@ test-e2e: check-bats
 	@echo "Running end-to-end tests..."
 	bats tests/e2e/
 
-# Run all tests with verbose output
+# Run all tests with verbose output (excluding legacy)
+# If you want to include legacy, use `make test-legacy` separately.
+
 test-all: check-bats
-	@echo "Running all tests with verbose output..."
-	bats --verbose --show-output-of-passing-tests tests/
+	@echo "Running all maintained tests with verbose output..."
+	bats --verbose --show-output-of-passing-tests tests/unit/
+	bats --verbose --show-output-of-passing-tests tests/integration/
+	bats --verbose --show-output-of-passing-tests tests/e2e/
 
 # Run specific test file
 test-file:
@@ -188,15 +201,20 @@ perf-test: check-bats
 coverage: check-bats
 	@echo "Generating test coverage report..."
 	@echo "Note: BATS doesn't provide built-in coverage reporting"
-	@echo "Running all tests to check coverage..."
-	bats --verbose tests/ > coverage.log 2>&1
+	@echo "Running maintained tests to check coverage..."
+	bats --verbose tests/unit/ > coverage.log 2>&1
+	bats --verbose tests/integration/ >> coverage.log 2>&1
+	bats --verbose tests/e2e/ >> coverage.log 2>&1
 	@echo "Coverage log saved to coverage.log"
 
 # Run tests in parallel (experimental)
+# Excludes legacy suite by default
 test-parallel: check-bats
 	@echo "Running tests in parallel..."
 	@echo "Note: This is experimental and may cause issues"
-	bats --jobs 4 tests/
+	bats --jobs 4 tests/unit/
+	bats --jobs 4 tests/integration/
+	bats --jobs 4 tests/e2e/
 
 # Validate certificates (if CA exists)
 validate-certs:

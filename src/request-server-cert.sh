@@ -38,7 +38,9 @@ USAGE
 }
 
 parse_issue_opts() {
-	SERVER_CN=''; SERVER_SANS=''; KEY_TYPE=''; RSA_BITS=''; EC_CURVE=''; PASS_FILE=''; LEAF_DAYS=''; FORCE=0
+	# Don't reset variables - preserve environment defaults
+	FORCE=0
+	PASS_FILE=""
 
 	while getopts ':c:s:k:r:e:p:d:fh-:' opt; do
 		case "$opt" in
@@ -104,8 +106,8 @@ parse_issue_opts() {
 
 	# Validate days if specified
 	if [[ -n "$LEAF_DAYS" ]]; then
-		if [[ ! "$LEAF_DAYS" =~ ^[0-9]+$ ]] || [[ "$LEAF_DAYS" -lt 1 ]] || [[ "$LEAF_DAYS" -gt 825 ]]; then
-			fatal "LEAF_DAYS must be between 1 and 825, got: $LEAF_DAYS" 2
+		if [[ ! "$LEAF_DAYS" =~ ^[0-9]+$ ]] || [[ "$LEAF_DAYS" -lt 1 ]]; then
+			fatal "LEAF_DAYS must be >= 1, got: $LEAF_DAYS" 2
 		fi
 	fi
 
@@ -113,11 +115,50 @@ parse_issue_opts() {
 	if [[ -n "$PASS_FILE" ]] && [[ ! -f "$PASS_FILE" ]]; then
 		fatal "Password file not found: $PASS_FILE" 2
 	fi
+
+	# Update server-related variables now that SERVER_CN is set
+	serverKey="${intermediatePath}/private/${SERVER_CN}.key.pem"
+	serverCsr="${intermediatePath}/csr/${SERVER_CN}.csr"
+	serverCert="${intermediatePath}/certs/${SERVER_CN}.cert.pem"
+	outputDir="${basePath}/output/${SERVER_CN}"
+	serverPem="${outputDir}/${SERVER_CN}.pkcs8.key.pem"
+	serverPfx="${outputDir}/${SERVER_CN}.pfx"
+
+	# Update intermediate key path
+	intermediateKey="${intermediatePath}/private/intermediate.key.pem"
+
+	# Update config paths to use test paths if they exist
+	if [[ -f "${SCRIPT_DIR}/openssl-intermediate.cnf" ]]; then
+		intermediateConfig="${SCRIPT_DIR}/openssl-intermediate.cnf"
+	fi
+	if [[ -f "${SCRIPT_DIR}/openssl-root.cnf" ]]; then
+		rootConfig="${SCRIPT_DIR}/openssl-root.cnf"
+	fi
+
+	# Create dynamic config files for test environment
+	if [[ "$basePath" != "/opt/ca" ]]; then
+		# Create dynamic intermediate config
+		intermediate_conf_run=$(mktemp)
+		sed "s|dir.*=.*/opt/ca/intermediate|dir = $intermediatePath|g" "$intermediateConfig" > "$intermediate_conf_run"
+		intermediateConfig="$intermediate_conf_run"
+
+		# Create dynamic root config if needed
+		if [[ -f "$rootConfig" ]]; then
+			root_conf_run=$(mktemp)
+			sed "s|dir.*=.*/opt/ca/root|dir = $rootCAPath|g" "$rootConfig" > "$root_conf_run"
+			rootConfig="$root_conf_run"
+		fi
+	fi
 }
 
 run_issue() {
 	# Parse options
 	parse_issue_opts "$@"
+
+	# Check if CA exists and is properly initialized
+	if [[ ! -f "$intermediateKey" ]] || [[ ! -f "$intermediateCert" ]] || [[ ! -f "$certificateChain" ]]; then
+		fatal "CA not found or not properly initialized. Run 'simpleca init' first." 1
+	fi
 
 	# Apply overrides if specified
 	[[ -n "$KEY_TYPE" ]] && export KEY_TYPE
@@ -147,10 +188,10 @@ run_issue() {
 		fi
 
 		echo "Enter the intermediate CA password: "
-		rootCaPasswd="$(. /opt/tools/read-password.sh)"
+					rootCaPasswd="$(read_password)"
 
-		echo "Choose a password for the Server private key: "
-		passwd="$(. /opt/tools/read-password.sh)"
+			echo "Choose a password for the Server private key: "
+			passwd="$(read_password)"
 	fi
 	#------------- --------------- ------------------
 
@@ -194,16 +235,24 @@ run_issue() {
 	mkdir -p "$outputDir"
 
 	# Step 4: Convert the server certificate to .pem format (server.pem) - usable by gRPC
-	openssl pkcs8 -topk8 -v2 aes-256-cbc -iter "${PKCS8_ITER}" \
-		-passin pass:"$passwd" -passout pass:"${passwd}" \
-		-in "$serverKey" -out "$serverPem"
+	# First convert to unencrypted PKCS#8, then re-encrypt with modern format
+	openssl pkcs8 -topk8 -nocrypt \
+		-in "$serverKey" -passin pass:"$passwd" \
+		-out "$serverPem.tmp"
+
+	openssl pkcs8 -topk8 -v2 aes-256-cbc \
+		-in "$serverPem.tmp" -out "$serverPem" \
+		-passout pass:"${passwd}"
+
+	rm -f "$serverPem.tmp"
 
 	info "Exporting server cert as pkcs12/pfx file..."
 	openssl pkcs12 -export -inkey "$serverKey" -passin pass:"${passwd}" \
 				 -in "$serverCert" -certfile "$certificateChain" \
 				 -out "$serverPfx" \
 				 -keypbe AES-256-CBC -certpbe AES-256-CBC \
-				 -macalg sha256 -iter "${PFX_ITER}" -maciter
+				 -macalg sha256 -iter "${PFX_ITER}" -maciter \
+				 -passout pass:"${passwd}"
 
 	info "Warning, the certificates will be copied to and possibly overwrite any files mounted to $exportDir"
 

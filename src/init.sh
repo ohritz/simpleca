@@ -35,7 +35,7 @@ USAGE
 }
 
 parse_init_opts() {
-	FORCE=0; KEY_TYPE=''; RSA_BITS=''; EC_CURVE=''; PASS_FILE=''
+	FORCE=0; KEY_TYPE="${KEY_TYPE:-}"; RSA_BITS="${RSA_BITS:-}"; EC_CURVE="${EC_CURVE:-}"; PASS_FILE="${PASS_FILE:-}"
 
 	while getopts ':fk:r:e:ph-:' opt; do
 		case "$opt" in
@@ -51,6 +51,9 @@ parse_init_opts() {
 					key-type=*) KEY_TYPE="${OPTARG#key-type=}";;
 					rsa-bits=*) RSA_BITS="${OPTARG#rsa-bits=}";;
 					ec-curve=*) EC_CURVE="${OPTARG#ec-curve=}";;
+					pass-file)
+						# support `--pass-file value`
+						PASS_FILE="$2"; shift 2; continue;;
 					pass-file=*) PASS_FILE="${OPTARG#pass-file=}";;
 					help) print_init_usage; exit 0;;
 					*) fatal "Unknown option: --$OPTARG" 2;;
@@ -102,12 +105,15 @@ run_init() {
 	cwd=${PWD}
 
 	# Check if CA already exists
-	if [[ $FORCE -eq 0 ]] && ([[ -d "$rootCAPath" ]] || [[ -d "$intermediatePath" ]]); then
+	if [[ $FORCE -eq 0 ]] && ([[ -f "$rootCAKey" ]] || [[ -f "$intermediateKey" ]]); then
 		fatal "CA already exists. Use --force to re-initialize." 1
 	fi
 
+	# Ensure defaults if not provided
+	[[ -z "$KEY_TYPE" ]] && KEY_TYPE="ec"
+	[[ -z "$EC_CURVE" ]] && EC_CURVE="prime256v1"
+	[[ -z "$RSA_BITS" ]] && RSA_BITS="3072"
 	info "Initializing CA with key type: $KEY_TYPE"
-
 	#------------- Password prompts ------------------
 	if [[ -n "$PASS_FILE" ]]; then
 		# Non-interactive mode with password file
@@ -120,10 +126,10 @@ run_init() {
 		fi
 
 		echo "Enter Root CA Password: "
-		rootPasswd="$(. /opt/tools/read-password.sh)"
+		rootPasswd="$(read_password)"
 
 		echo "Enter Intermediate CA Password: "
-		intermediatePasswd="$(. /opt/tools/read-password.sh)"
+		intermediatePasswd="$(read_password)"
 	fi
 	#------------- --------------- ------------------
 
@@ -133,14 +139,14 @@ run_init() {
 	if [[ -d "$rootCAPath" ]]; then
 		info "root cert directories found... removing & recreating"
 		rm -rf "$rootCAPath"
-		mkdir "$rootCAPath"
 	fi
+	mkdir -p "$rootCAPath"
 
 	if [[ -d "$intermediatePath" ]]; then
 		info "intermediate cert directories found... removing & recreating"
 		rm -rf "$intermediatePath"
-		mkdir "$intermediatePath"
 	fi
+	mkdir -p "$intermediatePath"
 
 	cd "$rootCAPath"
 	mkdir certs crl newcerts private
@@ -148,6 +154,11 @@ run_init() {
 	touch index.txt
 	echo 1000 > serial
 	cd "$cwd"
+
+	# Generate per-run OpenSSL config files with correct directories
+	root_conf_run="$rootCAPath/openssl-root.cnf"
+	intermediate_conf_run="$intermediatePath/openssl-intermediate.cnf"
+	sed "s#^dir\s*=.*#dir               = $rootCAPath#" "$rootConfig" > "$root_conf_run"
 
 	dd if=/dev/urandom of="${rootCAPath}/private/.rand" bs=256 count=1
 
@@ -167,7 +178,7 @@ run_init() {
 	chmod 400 "$rootCAKey"
 
 	openssl req -x509 -new -key "$rootCAKey" \
-	  -config "$rootConfig" -extensions v3_ca \
+	  -config "$root_conf_run" -extensions v3_ca \
 	  -sha256 -days 7300 -out "$rootCaCert" -passin pass:"${rootPasswd}" \
 	  -subj "/C=${ROOT_COUNTRY}/ST=${ROOT_STATE}/L=${ROOT_LOCALITY}/O=${ROOT_ORG}/OU=${ROOT_ORG} Certificate Authority/CN=${ROOT_ORG} Root CA"
 
@@ -186,6 +197,9 @@ run_init() {
 
 	info "Creating intermediate CA"
 
+	# Generate per-run intermediate config with correct directory
+	sed "s#^dir\s*=.*#dir               = $intermediatePath#" "$intermediateConfig" > "$intermediate_conf_run"
+
 	# Generate intermediate CA key using modern genpkey
 	if [[ "$KEY_TYPE" == "ec" ]]; then
 		openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:"${EC_CURVE}" \
@@ -198,13 +212,13 @@ run_init() {
 
 	chmod 400 "$intermediateKey"
 
-	openssl req -config "$intermediateConfig" -new -sha256 \
+	openssl req -config "$intermediate_conf_run" -new -sha256 \
 		  -key "$intermediateKey" \
 		  -out "$intermediateCsr" \
 		  -passin pass:"${intermediatePasswd}" \
 		  -subj "/C=${ROOT_COUNTRY}/ST=${ROOT_STATE}/L=${ROOT_LOCALITY}/O=${ROOT_ORG}/OU=${ROOT_ORG} Certificate Authority/CN=${ROOT_ORG} Intermediate CA"
 
-	openssl ca -config "$rootConfig" -extensions v3_intermediate_ca \
+	openssl ca -config "$root_conf_run" -extensions v3_intermediate_ca \
 		  -days 3650 -notext -md sha256 -batch \
 		  -in "$intermediateCsr" \
 		  -passin pass:"${rootPasswd}" \

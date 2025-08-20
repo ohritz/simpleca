@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 
+mkdir -p ./export
+
 docker run \
 -it --rm \
 --env-file ./.env \
---mount source=nemo2-ca,target=/opt/ca \
+--mount source=ca-vol,target=/opt/ca \
 --mount type=bind,source=${PWD}/src,target=/opt/tools \
+--mount type=bind,source=${PWD}/export,target=/opt/export \
 --entrypoint="sh" \
 osorenan/simpleca

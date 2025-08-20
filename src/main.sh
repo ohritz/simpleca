@@ -80,19 +80,29 @@ USAGE
 # Load .env if present (without overriding existing env)
 load_dotenv ".env" || true
 
-# Check for help or version as first argument
-if [[ $# -gt 0 ]]; then
+# Global flags (parsed before subcommand)
+QUIET=0; VERBOSE=0; NO_COLOR=0; NON_INTERACTIVE=0
+
+# Pre-parse help/version and global flags
+args=()
+while [[ $# -gt 0 ]]; do
 	case "$1" in
-		--help|-h|help)
-			print_usage
-			exit 0
-			;;
-		--version|version)
-			printf 'simpleca %s\n' "$VERSION"
-			exit 0
-			;;
+		--help|-h|help) print_usage; exit 0;;
+		--version) printf 'simpleca %s\n' "$VERSION"; exit 0;;
+		-q|--quiet) QUIET=1; shift; continue;;
+		-v|--verbose) VERBOSE=$((VERBOSE+1)); shift; continue;;
+		--no-color) NO_COLOR=1; shift; continue;;
+		--non-interactive) NON_INTERACTIVE=1; export NON_INTERACTIVE; shift; continue;;
+		--) shift; break;;
+		-*) # unknown flag
+			fatal "Unknown option: $1" 2;;
+		*) args+=("$1"); shift; break;;
 	esac
-fi
+	shift || true
+done
+
+# Remaining args include subcommand and its args
+set -- "${args[@]}" "$@"
 
 # Check for empty command
 if [[ $# -eq 0 ]]; then
@@ -131,10 +141,14 @@ case "$SUBCOMMAND" in
 		print_usage
 		;;
 	*)
-		# Back-compat: treat as hostname for issue command
-		export SERVER_CN="$SUBCOMMAND"
-		info "Making request for hostname $SERVER_CN"
-		. "${SCRIPT_DIR}/request-server-cert.sh" "$SERVER_CN" "$@"
+		# Back-compat: treat as hostname for issue command when it looks like a hostname (no leading dash)
+		if [[ "$SUBCOMMAND" != -* ]]; then
+			export SERVER_CN="$SUBCOMMAND"
+			info "Making request for hostname $SERVER_CN"
+			. "${SCRIPT_DIR}/request-server-cert.sh" "$SERVER_CN" "$@"
+		else
+			fatal "Unknown command: $SUBCOMMAND" 2
+		fi
 		;;
 esac
 

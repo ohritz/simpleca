@@ -23,22 +23,18 @@ Options:
       --issuer-name <name>      Issuer name (default: ca-issuer)
       --secret-name <name>      Secret name (default: ca-key-pair)
   -o, --out <dir>               Output base directory (default: /opt/export/manifests)
-      --crl=<url>               CRL Distribution Point (repeatable)
-      --ocsp=<url>              OCSP server URL (repeatable)
   -p, --pass-file <file>        Password file for intermediate key (non-interactive)
   -f, --force                   Overwrite files if they already exist
   -h, --help                    Show this help
 
 Examples:
   simpleca cert-manager export --ns sandbox
-  simpleca cert-manager export --ns prod --issuer-name corp-issuer --secret-name corp-ca --out /tmp/manifests \
-    --crl=http://crl.example.com/root.crl --ocsp=http://ocsp.example.com
+  simpleca cert-manager export --ns prod --issuer-name corp-issuer --secret-name corp-ca --out /tmp/manifests
 USAGE
 }
 
 parse_cert_manager_opts() {
-	MODE=""; NAMESPACE=""; ISSUER_NAME="ca-issuer"; SECRET_NAME="ca-key-pair"; OUT_DIR="/opt/export/manifests"; FORCE=0; PASS_FILE=""
-	CRL_URLS=(); OCSP_URLS=()
+	MODE=""; NAMESPACE=""; ISSUER_NAME="ca-issuer"; SECRET_NAME="ca-key-pair"; OUT_DIR="${exportDir:-/opt/export}/manifests"; FORCE=0; PASS_FILE=""
 
 	# First positional must be 'export'
 	if [[ $# -gt 0 ]]; then
@@ -52,6 +48,19 @@ parse_cert_manager_opts() {
 	fi
 
 	while getopts ':n:o:p:fh-:' opt; do
+		# Support GNU-style long options passed as separate arguments
+		if [[ "$opt" = "-" && "$OPTARG" =~ ^(ns|namespace|issuer-name|secret-name|out|pass-file)$ ]]; then
+			# OPTARG is the long option name without value; consume next arg as its value
+			longopt="$OPTARG"; longval="$2"; shift 2 || true
+			case "$longopt" in
+				ns|namespace) NAMESPACE="$longval";;
+				issuer-name) ISSUER_NAME="$longval";;
+				secret-name) SECRET_NAME="$longval";;
+				out) OUT_DIR="$longval";;
+				pass-file) PASS_FILE="$longval";;
+			esac
+			continue
+		fi
 		case "$opt" in
 			n) NAMESPACE="$OPTARG";;
 			o) OUT_DIR="$OPTARG";;
@@ -65,8 +74,9 @@ parse_cert_manager_opts() {
 					issuer-name=*) ISSUER_NAME="${OPTARG#issuer-name=}";;
 					secret-name=*) SECRET_NAME="${OPTARG#secret-name=}";;
 					out=*) OUT_DIR="${OPTARG#out=}";;
-					crl=*) CRL_URLS+=("${OPTARG#crl=}");;
-					ocsp=*) OCSP_URLS+=("${OPTARG#ocsp=}");;
+					pass-file)
+						PASS_FILE="$2"; shift 2; continue;;
+					pass-file=*) PASS_FILE="${OPTARG#pass-file=}";;
 					help) print_cert_manager_usage; exit 0;;
 					*) fatal "Unknown option: --$OPTARG" 2;;
 				esac;;
@@ -106,9 +116,7 @@ YAML
 }
 
 render_issuer_yaml() {
-	local outdir="$1"; local ns="$2"; local issuer_name="$3"; local secret_name="$4"; shift 4
-	# Remaining args: arrays serialized as strings
-	local crl_csv="$1"; local ocsp_csv="$2"
+	local outdir="$1"; local ns="$2"; local issuer_name="$3"; local secret_name="$4"
 	cat > "${outdir}/issuer.yaml" <<YAML
 apiVersion: cert-manager.io/v1
 kind: Issuer
@@ -119,25 +127,17 @@ spec:
   ca:
     secretName: ${secret_name}
 YAML
-	# Optional arrays
-	if [[ -n "$crl_csv" ]]; then
-		printf '  crlDistributionPoints:\n' >> "${outdir}/issuer.yaml"
-		IFS=',' read -r -a _crl_arr <<< "$crl_csv"
-		for u in "${_crl_arr[@]}"; do
-			printf '  - "%s"\n' "$u" >> "${outdir}/issuer.yaml"
-		done
-	fi
-	if [[ -n "$ocsp_csv" ]]; then
-		printf '  ocspServers:\n' >> "${outdir}/issuer.yaml"
-		IFS=',' read -r -a _ocsp_arr <<< "$ocsp_csv"
-		for u in "${_ocsp_arr[@]}"; do
-			printf '  - "%s"\n' "$u" >> "${outdir}/issuer.yaml"
-		done
-	fi
 }
 
 run_cert_manager() {
 	parse_cert_manager_opts "$@"
+
+	# Normalize OUT_DIR to a writable path; if /opt not writable, fallback to exportDir
+	if ! mkdir -p "$OUT_DIR" 2>/dev/null; then
+		OUT_DIR="${exportDir:-$OUT_DIR}"
+		OUT_DIR="${OUT_DIR%/}/manifests"
+		mkdir -p "$OUT_DIR"
+	fi
 
 	local dest_dir="${OUT_DIR%/}/${NAMESPACE}/${ISSUER_NAME}"
 	mkdir -p "$dest_dir"
@@ -164,7 +164,7 @@ run_cert_manager() {
 			fatal "Non-interactive mode requires --pass-file to decrypt the intermediate key" 1
 		fi
 		echo "Enter the intermediate CA password: "
-		int_pass="$(. /opt/tools/read-password.sh)"
+		int_pass="$(read_password)"
 	fi
 
 	# Write unencrypted PKCS#8 intermediate key to export dir ONLY
@@ -193,10 +193,7 @@ run_cert_manager() {
 
 	# Render manifests
 	render_secret_yaml "$dest_dir" "$NAMESPACE" "$SECRET_NAME" "$fullchain_file" "$unenc_key_file"
-	local crl_csv=""; local ocsp_csv=""
-	if [[ ${#CRL_URLS[@]} -gt 0 ]]; then crl_csv="$(IFS=','; echo "${CRL_URLS[*]}")"; fi
-	if [[ ${#OCSP_URLS[@]} -gt 0 ]]; then ocsp_csv="$(IFS=','; echo "${OCSP_URLS[*]}")"; fi
-	render_issuer_yaml "$dest_dir" "$NAMESPACE" "$ISSUER_NAME" "$SECRET_NAME" "$crl_csv" "$ocsp_csv"
+	render_issuer_yaml "$dest_dir" "$NAMESPACE" "$ISSUER_NAME" "$SECRET_NAME"
 
 	# Optional YAML syntax check with yq if available
 	if command -v yq >/dev/null 2>&1; then
