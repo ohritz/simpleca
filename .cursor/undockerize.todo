@@ -12,8 +12,8 @@ Conventions to implement
   - -h/--help prints usage to stdout and exits 0; errors print to stderr and exit non-zero
   - Consistent error messages: "Unknown option: --xyz" and "Missing argument for --key-type"
 - [ ] XDG paths:
-  - basePath default: ${XDG_STATE_HOME:-$HOME/.local/state}/simple-ca
-  - exportDir default: ${XDG_STATE_HOME:-$HOME/.local/state}/simple-ca/export
+  - basePath default: ${XDG_DATA_HOME:-$HOME/.local/share}/simple-ca
+  - exportDir default: ${XDG_DATA_HOME:-$HOME/.local/share}/simple-ca/export
   - rootConfig, intermediateConfig default to ${SCRIPT_DIR}/openssl-*.cnf
   - Still honor env overrides if provided (basePath, exportDir, rootConfig, intermediateConfig)
   - Add global CLI options to override paths: --base-path, --export-dir
@@ -62,9 +62,9 @@ Task 3 — Introduce XDG defaults and global path flags
   - [ ] src/common.sh (defaults)
   - [ ] src/main.sh (global flag parsing)
 - [ ] Edits in src/common.sh:
-  - [ ] Compute default_xdg_state_dir="${XDG_STATE_HOME:-$HOME/.local/state}".
-  - [ ] Default basePath to "${default_xdg_state_dir}/simple-ca" when basePath not set.
-  - [ ] Default exportDir to "${default_xdg_state_dir}/simple-ca/export" when exportDir not set.
+  - [ ] Compute default_xdg_data_dir="${XDG_DATA_HOME:-$HOME/.local/share}".
+  - [ ] Default basePath to "${default_xdg_data_dir}/simple-ca" when basePath not set.
+  - [ ] Default exportDir to "${default_xdg_data_dir}/simple-ca/export" when exportDir not set.
   - [ ] Default rootConfig and intermediateConfig to "${SCRIPT_DIR}/openssl-*.cnf" when not set.
   - [ ] Ensure directories are created as needed (mkdir -p on use sites, not at import time) with restrictive permissions.
 - [ ] Edits in src/main.sh:
@@ -72,7 +72,7 @@ Task 3 — Introduce XDG defaults and global path flags
   - [ ] After parsing, export basePath/exportDir so subcommands inherit.
   - [ ] Update help text to mention XDG defaults and new global flags.
 - [ ] Acceptance criteria:
-  - [ ] Running scripts without any env produces CA under ~/.local/state/simple-ca by default.
+  - [ ] Running scripts without any env produces CA under ~/.local/share/simple-ca by default.
   - [ ] Global flags override defaults for all subcommands (e.g., simpleca --base-path /tmp/ca init).
 
 Task 4 — Remove hard-coded /opt paths and make config writing unconditional
@@ -110,7 +110,7 @@ Task 6 — Developer UX: runnable without Docker and simple wrapper
   - [ ] Add Makefile target install (optional) to copy bin/simpleca to /usr/local/bin.
   - [ ] Document host usage and XDG defaults in Readme.md, including how to override paths and how to migrate from Docker volume.
 - [ ] Acceptance criteria:
-  - [ ] Running simpleca on host with no env works and writes to ~/.local/state/simple-ca.
+  - [ ] Running simpleca on host with no env works and writes to ~/.local/share/simple-ca.
 
 Task 7 — Optional: migration helper (nice-to-have)
 - [ ] New subcommand: simpleca migrate
@@ -154,10 +154,10 @@ Concrete edit checklist per file
 
 Verification steps
 - [ ] Host (no Docker):
-  - [ ] rm -rf ~/.local/state/simple-ca
+  - [ ] rm -rf ~/.local/share/simple-ca
   - [ ] ./src/main.sh init (or bin/simpleca init)
   - [ ] ./src/main.sh issue --cn test.local --sans DNS:test.local
-  - [ ] Confirm files under ~/.local/state/simple-ca
+  - [ ] Confirm files under ~/.local/share/simple-ca
 - [ ] Container:
   - [ ] make docker-test
   - [ ] docker run --rm -e basePath=/opt/ca -e exportDir=/opt/export simpleca:latest version
