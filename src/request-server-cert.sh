@@ -42,35 +42,112 @@ parse_issue_opts() {
 	FORCE=0
 	PASS_FILE=""
 
-	while getopts ':c:s:k:r:e:p:d:fh-:' opt; do
-		case "$opt" in
-			c) SERVER_CN="$OPTARG";;
-			s) SERVER_SANS="$OPTARG";;
-			k) KEY_TYPE="$OPTARG";;
-			r) RSA_BITS="$OPTARG";;
-			e) EC_CURVE="$OPTARG";;
-			p) PASS_FILE="$OPTARG";;
-			d) LEAF_DAYS="$OPTARG";;
-			f) FORCE=1;;
-			h) print_issue_usage; exit 0;;
-			-)
-				case "$OPTARG" in
-					cn=*) SERVER_CN="${OPTARG#cn=}";;
-					sans=*) SERVER_SANS="${OPTARG#sans=}";;
-					key-type=*) KEY_TYPE="${OPTARG#key-type=}";;
-					rsa-bits=*) RSA_BITS="${OPTARG#rsa-bits=}";;
-					ec-curve=*) EC_CURVE="${OPTARG#ec-curve=}";;
-					pass-file=*) PASS_FILE="${OPTARG#pass-file=}";;
-					days=*) LEAF_DAYS="${OPTARG#days=}";;
-					force) FORCE=1;;
-					help) print_issue_usage; exit 0;;
-					*) fatal "Unknown option: --$OPTARG" 2;;
-				esac;;
-			:) fatal "Missing argument for -$OPTARG" 2;;
-			\?) fatal "Unknown option: -$OPTARG" 2;;
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			-h|--help)
+				print_issue_usage
+				exit 0
+				;;
+			-c|--cn)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					SERVER_CN="$2"
+					shift 2
+				else
+					fatal "Missing argument for --cn" 2
+				fi
+				;;
+			--cn=*)
+				SERVER_CN="${1#--cn=}"
+				shift
+				;;
+			-s|--sans)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					SERVER_SANS="$2"
+					shift 2
+				else
+					fatal "Missing argument for --sans" 2
+				fi
+				;;
+			--sans=*)
+				SERVER_SANS="${1#--sans=}"
+				shift
+				;;
+			-k|--key-type)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					KEY_TYPE="$2"
+					shift 2
+				else
+					fatal "Missing argument for --key-type" 2
+				fi
+				;;
+			--key-type=*)
+				KEY_TYPE="${1#--key-type=}"
+				shift
+				;;
+			-r|--rsa-bits)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					RSA_BITS="$2"
+					shift 2
+				else
+					fatal "Missing argument for --rsa-bits" 2
+				fi
+				;;
+			--rsa-bits=*)
+				RSA_BITS="${1#--rsa-bits=}"
+				shift
+				;;
+			-e|--ec-curve)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					EC_CURVE="$2"
+					shift 2
+				else
+					fatal "Missing argument for --ec-curve" 2
+				fi
+				;;
+			--ec-curve=*)
+				EC_CURVE="${1#--ec-curve=}"
+				shift
+				;;
+			-p|--pass-file)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					PASS_FILE="$2"
+					shift 2
+				else
+					fatal "Missing argument for --pass-file" 2
+				fi
+				;;
+			--pass-file=*)
+				PASS_FILE="${1#--pass-file=}"
+				shift
+				;;
+			-d|--days)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					LEAF_DAYS="$2"
+					shift 2
+				else
+					fatal "Missing argument for --days" 2
+				fi
+				;;
+			--days=*)
+				LEAF_DAYS="${1#--days=}"
+				shift
+				;;
+			-f|--force)
+				FORCE=1
+				shift
+				;;
+			--)
+				shift
+				break
+				;;
+			-*)
+				fatal "Unknown option: $1" 2
+				;;
+			*)
+				break
+				;;
 		esac
 	done
-	shift $((OPTIND-1))
 
 	# Handle positional argument for backward compatibility
 	if [[ $# -gt 0 ]] && [[ -z "$SERVER_CN" ]]; then

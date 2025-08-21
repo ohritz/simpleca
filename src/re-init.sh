@@ -35,21 +35,28 @@ USAGE
 parse_reinit_opts() {
 	FORCE=0; ARCHIVE_FILE="ca.tar.gz"
 
-	while getopts ':fh-:' opt; do
-		case "$opt" in
-			f) FORCE=1;;
-			h) print_reinit_usage; exit 0;;
-			-)
-				case "$OPTARG" in
-					force) FORCE=1;;
-					help) print_reinit_usage; exit 0;;
-					*) fatal "Unknown option: --$OPTARG" 2;;
-				esac;;
-			:) fatal "Missing argument for -$OPTARG" 2;;
-			\?) fatal "Unknown option: -$OPTARG" 2;;
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			-h|--help)
+				print_reinit_usage
+				exit 0
+				;;
+			-f|--force)
+				FORCE=1
+				shift
+				;;
+			--)
+				shift
+				break
+				;;
+			-*)
+				fatal "Unknown option: $1" 2
+				;;
+			*)
+				break
+				;;
 		esac
 	done
-	shift $((OPTIND-1))
 
 	# Handle positional argument for archive file
 	if [[ $# -gt 0 ]]; then

@@ -33,23 +33,40 @@ USAGE
 parse_eject_opts() {
 	OUTPUT_FILE="ca.tar.gz"; FORCE=0
 
-	while getopts ':o:fh-:' opt; do
-		case "$opt" in
-			o) OUTPUT_FILE="$OPTARG";;
-			f) FORCE=1;;
-			h) print_eject_usage; exit 0;;
-			-)
-				case "$OPTARG" in
-					output=*) OUTPUT_FILE="${OPTARG#output=}";;
-					force) FORCE=1;;
-					help) print_eject_usage; exit 0;;
-					*) fatal "Unknown option: --$OPTARG" 2;;
-				esac;;
-			:) fatal "Missing argument for -$OPTARG" 2;;
-			\?) fatal "Unknown option: -$OPTARG" 2;;
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			-h|--help)
+				print_eject_usage
+				exit 0
+				;;
+			-o|--output)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					OUTPUT_FILE="$2"
+					shift 2
+				else
+					fatal "Missing argument for --output" 2
+				fi
+				;;
+			--output=*)
+				OUTPUT_FILE="${1#--output=}"
+				shift
+				;;
+			-f|--force)
+				FORCE=1
+				shift
+				;;
+			--)
+				shift
+				break
+				;;
+			-*)
+				fatal "Unknown option: $1" 2
+				;;
+			*)
+				break
+				;;
 		esac
 	done
-	shift $((OPTIND-1))
 
 	# Ensure output file has .tar.gz extension if not specified
 	if [[ "$OUTPUT_FILE" != *.tar.gz ]]; then

@@ -34,25 +34,60 @@ USAGE
 parse_validate_opts() {
 	CERT_FILE=''; KEY_FILE=''; PASS_FILE=''
 
-	while getopts ':c:k:p:h-:' opt; do
-		case "$opt" in
-			c) CERT_FILE="$OPTARG";;
-			k) KEY_FILE="$OPTARG";;
-			p) PASS_FILE="$OPTARG";;
-			h) print_validate_usage; exit 0;;
-			-)
-				case "$OPTARG" in
-					cert=*) CERT_FILE="${OPTARG#cert=}";;
-					key=*) KEY_FILE="${OPTARG#key=}";;
-					pass-file=*) PASS_FILE="${OPTARG#pass-file=}";;
-					help) print_validate_usage; exit 0;;
-					*) fatal "Unknown option: --$OPTARG" 2;;
-				esac;;
-			:) fatal "Missing argument for -$OPTARG" 2;;
-			\?) fatal "Unknown option: -$OPTARG" 2;;
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			-h|--help)
+				print_validate_usage
+				exit 0
+				;;
+			-c|--cert)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					CERT_FILE="$2"
+					shift 2
+				else
+					fatal "Missing argument for --cert" 2
+				fi
+				;;
+			--cert=*)
+				CERT_FILE="${1#--cert=}"
+				shift
+				;;
+			-k|--key)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					KEY_FILE="$2"
+					shift 2
+				else
+					fatal "Missing argument for --key" 2
+				fi
+				;;
+			--key=*)
+				KEY_FILE="${1#--key=}"
+				shift
+				;;
+			-p|--pass-file)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					PASS_FILE="$2"
+					shift 2
+				else
+					fatal "Missing argument for --pass-file" 2
+				fi
+				;;
+			--pass-file=*)
+				PASS_FILE="${1#--pass-file=}"
+				shift
+				;;
+			--)
+				shift
+				break
+				;;
+			-*)
+				fatal "Unknown option: $1" 2
+				;;
+			*)
+				break
+				;;
 		esac
 	done
-	shift $((OPTIND-1))
 
 	# Set default certificate file if not specified
 	if [[ -z "$CERT_FILE" ]]; then

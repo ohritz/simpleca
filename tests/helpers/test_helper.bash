@@ -329,7 +329,7 @@ assert_output_contains() {
     local output="$2"
     local message="${3:-Output should contain: $pattern}"
 
-    if ! echo "$output" | grep -q "$pattern"; then
+    if ! echo "$output" | grep -F -- "$pattern" >/dev/null 2>&1; then
         echo "$message" >&2
         echo "Output: $output" >&2
         return 1
@@ -342,7 +342,7 @@ assert_output_not_contains() {
     local output="$2"
     local message="${3:-Output should not contain: $pattern}"
 
-    if echo "$output" | grep -q "$pattern"; then
+    if echo "$output" | grep -F -- "$pattern" >/dev/null 2>&1; then
         echo "$message" >&2
         echo "Output: $output" >&2
         return 1

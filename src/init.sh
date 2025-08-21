@@ -37,32 +37,76 @@ USAGE
 parse_init_opts() {
 	FORCE=0; KEY_TYPE="${KEY_TYPE:-}"; RSA_BITS="${RSA_BITS:-}"; EC_CURVE="${EC_CURVE:-}"; PASS_FILE="${PASS_FILE:-}"
 
-	while getopts ':fk:r:e:ph-:' opt; do
-		case "$opt" in
-			f) FORCE=1;;
-			k) KEY_TYPE="$OPTARG";;
-			r) RSA_BITS="$OPTARG";;
-			e) EC_CURVE="$OPTARG";;
-			p) PASS_FILE="$OPTARG";;
-			h) print_init_usage; exit 0;;
-			-)
-				case "$OPTARG" in
-					force) FORCE=1;;
-					key-type=*) KEY_TYPE="${OPTARG#key-type=}";;
-					rsa-bits=*) RSA_BITS="${OPTARG#rsa-bits=}";;
-					ec-curve=*) EC_CURVE="${OPTARG#ec-curve=}";;
-					pass-file)
-						# support `--pass-file value`
-						PASS_FILE="$2"; shift 2; continue;;
-					pass-file=*) PASS_FILE="${OPTARG#pass-file=}";;
-					help) print_init_usage; exit 0;;
-					*) fatal "Unknown option: --$OPTARG" 2;;
-				esac;;
-			:) fatal "Missing argument for -$OPTARG" 2;;
-			\?) fatal "Unknown option: -$OPTARG" 2;;
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			-h|--help)
+				print_init_usage
+				exit 0
+				;;
+			-f|--force)
+				FORCE=1
+				shift
+				;;
+			-k|--key-type)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					KEY_TYPE="$2"
+					shift 2
+				else
+					fatal "Missing argument for --key-type" 2
+				fi
+				;;
+			--key-type=*)
+				KEY_TYPE="${1#--key-type=}"
+				shift
+				;;
+			-r|--rsa-bits)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					RSA_BITS="$2"
+					shift 2
+				else
+					fatal "Missing argument for --rsa-bits" 2
+				fi
+				;;
+			--rsa-bits=*)
+				RSA_BITS="${1#--rsa-bits=}"
+				shift
+				;;
+			-e|--ec-curve)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					EC_CURVE="$2"
+					shift 2
+				else
+					fatal "Missing argument for --ec-curve" 2
+				fi
+				;;
+			--ec-curve=*)
+				EC_CURVE="${1#--ec-curve=}"
+				shift
+				;;
+			-p|--pass-file)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					PASS_FILE="$2"
+					shift 2
+				else
+					fatal "Missing argument for --pass-file" 2
+				fi
+				;;
+			--pass-file=*)
+				PASS_FILE="${1#--pass-file=}"
+				shift
+				;;
+			--)
+				shift
+				break
+				;;
+			-*)
+				fatal "Unknown option: $1" 2
+				;;
+			*)
+				break
+				;;
 		esac
 	done
-	shift $((OPTIND-1))
 
 	# Validate key type if specified
 	if [[ -n "$KEY_TYPE" ]]; then

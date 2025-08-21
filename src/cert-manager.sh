@@ -47,44 +47,92 @@ parse_cert_manager_opts() {
 		print_cert_manager_usage; exit 2
 	fi
 
-	while getopts ':n:o:p:fh-:' opt; do
-		# Support GNU-style long options passed as separate arguments
-		if [[ "$opt" = "-" && "$OPTARG" =~ ^(ns|namespace|issuer-name|secret-name|out|pass-file)$ ]]; then
-			# OPTARG is the long option name without value; consume next arg as its value
-			longopt="$OPTARG"; longval="$2"; shift 2 || true
-			case "$longopt" in
-				ns|namespace) NAMESPACE="$longval";;
-				issuer-name) ISSUER_NAME="$longval";;
-				secret-name) SECRET_NAME="$longval";;
-				out) OUT_DIR="$longval";;
-				pass-file) PASS_FILE="$longval";;
-			esac
-			continue
-		fi
-		case "$opt" in
-			n) NAMESPACE="$OPTARG";;
-			o) OUT_DIR="$OPTARG";;
-			p) PASS_FILE="$OPTARG";;
-			f) FORCE=1;;
-			h) print_cert_manager_usage; exit 0;;
-			-)
-				case "$OPTARG" in
-					ns=*) NAMESPACE="${OPTARG#ns=}";;
-					namespace=*) NAMESPACE="${OPTARG#namespace=}";;
-					issuer-name=*) ISSUER_NAME="${OPTARG#issuer-name=}";;
-					secret-name=*) SECRET_NAME="${OPTARG#secret-name=}";;
-					out=*) OUT_DIR="${OPTARG#out=}";;
-					pass-file)
-						PASS_FILE="$2"; shift 2; continue;;
-					pass-file=*) PASS_FILE="${OPTARG#pass-file=}";;
-					help) print_cert_manager_usage; exit 0;;
-					*) fatal "Unknown option: --$OPTARG" 2;;
-				esac;;
-			:) fatal "Missing argument for -$OPTARG" 2;;
-			\?) fatal "Unknown option: -$OPTARG" 2;;
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			-h|--help)
+				print_cert_manager_usage
+				exit 0
+				;;
+			-n|--ns|--namespace)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					NAMESPACE="$2"
+					shift 2
+				else
+					fatal "Missing argument for --ns|--namespace" 2
+				fi
+				;;
+			--ns=*)
+				NAMESPACE="${1#--ns=}"
+				shift
+				;;
+			--namespace=*)
+				NAMESPACE="${1#--namespace=}"
+				shift
+				;;
+			--issuer-name)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					ISSUER_NAME="$2"
+					shift 2
+				else
+					fatal "Missing argument for --issuer-name" 2
+				fi
+				;;
+			--issuer-name=*)
+				ISSUER_NAME="${1#--issuer-name=}"
+				shift
+				;;
+			--secret-name)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					SECRET_NAME="$2"
+					shift 2
+				else
+					fatal "Missing argument for --secret-name" 2
+				fi
+				;;
+			--secret-name=*)
+				SECRET_NAME="${1#--secret-name=}"
+				shift
+				;;
+			-o|--out)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					OUT_DIR="$2"
+					shift 2
+				else
+					fatal "Missing argument for --out" 2
+				fi
+				;;
+			--out=*)
+				OUT_DIR="${1#--out=}"
+				shift
+				;;
+			-p|--pass-file)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					PASS_FILE="$2"
+					shift 2
+				else
+					fatal "Missing argument for --pass-file" 2
+				fi
+				;;
+			--pass-file=*)
+				PASS_FILE="${1#--pass-file=}"
+				shift
+				;;
+			-f|--force)
+				FORCE=1
+				shift
+				;;
+			--)
+				shift
+				break
+				;;
+			-*)
+				fatal "Unknown option: $1" 2
+				;;
+			*)
+				break
+				;;
 		esac
 	done
-	shift $((OPTIND-1))
 
 	[[ "$MODE" == "export" ]] || fatal "Missing subcommand: export" 2
 	[[ -n "$NAMESPACE" ]] || fatal "Missing required: --ns|--namespace <name>" 2
