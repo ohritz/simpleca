@@ -3,192 +3,303 @@ description:
 globs:
 alwaysApply: true
 ---
-### Bash-ninja rules for Simple CA scripts
+---
 
-Goals
-- Predictable, safe behavior in both interactive and CI contexts.
-- Stable, extensible subcommands with well-defined options and precedence.
-- Minimal surprises: strict modes, clear errors, no secret leakage, idempotency where practical.
+description: "Bash Ninja — Cursor rules for option parsing & usage help"
+globs:
+alwaysApply: true
+-----------------
 
-Standards (apply to all scripts under `src/`)
-- Shebang and strict mode:
-  - Use `#!/usr/bin/env bash`
-  - First lines: `set -Eeuo pipefail` and `IFS=$'\n\t'`
-  - Add `umask 077` for key material creation and temp files
-- Traps and cleanup:
-  - `trap 'on_err $LINENO' ERR` and `trap 'on_sig' SIGINT SIGTERM`
-  - `on_err` should print a concise message to stderr and exit non-zero; do not dump secrets
-- Quoting and safety:
-  - Double-quote all variable expansions; avoid word-splitting and globbing
-  - Prefer `[[ ... ]]` for tests; use arrays for argument lists
-  - Use `mktemp -d` for temp dirs; remove with `rm -rf` in `on_sig`/`on_err`
-- Dependencies:
-  - Verify required tools (`openssl`, `bash`) at startup; friendly error if missing
+# Bash Ninja: Option parsing & usage help (concise, correct, portable)
 
-Command model
-- Single entrypoint `src/main.sh` with subcommands:
-  - `init`, `issue`, `eject`, `re-init`, `validate`, `version`, `help`
-- Subcommand discovery: if `$1` is empty or `help`, print help and exit 0; unknown subcommand → print help and exit 2
-- Each subcommand has its own `parse_<cmd>_opts` and `run_<cmd>` functions
+This file collects **practical, correct guidance** and ready-to-use code patterns for parsing option flags in Bash and printing usage/help text. It focuses on portability, correctness, and maintainability.
 
-Options & arguments
-- Short options via POSIX `getopts`
-- Long options supported via a `-:` sentinel pattern (portable) mapped to short options
-- No positional ambiguity: require `--` to terminate option parsing when passing through args to underlying tools
-- Common global flags (apply to all subcommands): `-h|--help`, `-q|--quiet`, `-v|--verbose`, `--no-color`, `--non-interactive`
+> Two quick rules:
+>
+> 1. Use `getopts` for short options (portable POSIX).
+> 2. Use `getopt` or manual parsing for long options — but be careful: `getopt` differs across platforms. If you need maximum portability, prefer manual parsing.
 
-Parsing skeleton (portable, no GNU getopt dependency)
+---
+
+## Script safety boilerplate
+
+Always start scripts with these sane defaults:
+
 ```bash
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -euo pipefail
+IFS=$'\n\t'
+```
+
+* `set -euo pipefail` helps fail fast and avoid unbound variables.
+* `IFS` change reduces word-splitting surprises.
+
+---
+
+## Recommended helper functions
+
+```bash
+# Print usage/help. If called with no args, print to stdout (for `-h`).
+# If called with an error message (first arg), print message + usage to stderr and exit non-zero.
+usage() {
+  if [[ $# -eq 0 ]]; then
+    cat <<'USAGE'
+Usage: myscript.sh [OPTIONS] [--] <positional-args>
+
+Options:
+  -h, --help        Show this help and exit
+  -v, --verbose     Enable verbose logging
+  -f, --file FILE   Path to input file (required)
+
+Examples:
+  myscript.sh -f /path/to/file
+USAGE
+    return 0
+  else
+    printf '%s\n\n' "$1" >&2
+    cat <<'USAGE' >&2
+Usage: myscript.sh [OPTIONS] [--] <positional-args>
+Try 'myscript.sh --help' for more information.
+USAGE
+    exit 2
+  fi
+}
+
+# Print error and exit
+die() {
+  printf '%s\n' "$1" >&2
+  exit ${2-1}
+}
+```
+
+Notes:
+
+* Use `printf` (portable, predictable) instead of `echo`.
+* Return code `2` is commonly used for usage errors; choose something meaningful.
+
+---
+
+## 1) POSIX-style short options with `getopts` (recommended for simple scripts)
+
+`getopts` is portable and ideal for parsing short flags like `-h`, `-f ARG`, `-v`.
+
+```bash
+# Default values
+VERBOSE=0
+FILE=""
+
+while getopts ":hvf:" opt; do
+  case "$opt" in
+    h)
+      usage
+      ;;
+    v)
+      VERBOSE=1
+      ;;
+    f)
+      FILE="$OPTARG"
+      ;;
+    :) # missing option argument
+      usage "Option -$OPTARG requires an argument."
+      ;;
+    \?)
+      usage "Invalid option: -$OPTARG"
+      ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+# After shift, $1.. are positional args
+```
+
+Key points:
+
+* Include a leading `:` in the `getopts` spec (`":hvf:"`) to handle missing-argument errors yourself.
+* Call `usage` for invalid or missing options so the user sees a helpful message.
+
+---
+
+## 2) Long options and combined short/long parsing
+
+There is no portable bash builtin for GNU-style long options. You have three choices:
+
+1. Use GNU `getopt` (not portable on macOS without installing `gnu-getopt`).
+2. Manually parse `"$@"` with a `while`/`case` loop (portable and explicit).
+3. Use a small helper that normalizes long options into short ones before calling `getopts`.
+
+### Manual (recommended for portability)
+
+```bash
+# Example: support -h/--help, -v/--verbose, -f/--file ARG
+VERBOSE=0
+FILE=""
+POSITIONAL=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      ;;
+    -v|--verbose)
+      VERBOSE=1
+      shift
+      ;;
+    -f|--file)
+      if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+        FILE="$2"
+        shift 2
+      else
+        usage "--file requires an argument"
+      fi
+      ;;
+    --) # end of options
+      shift
+      break
+      ;;
+    -*)
+      usage "Unknown option: $1"
+      ;;
+    *)
+      POSITIONAL+=("$1")
+      shift
+      ;;
+  esac
+done
+
+# restore positional args
+set -- "${POSITIONAL[@]:-}"
+```
+
+Notes:
+
+* Check that the next parameter isn't another option before using it as an argument.
+* Support `--` to stop option parsing.
+
+### Using GNU `getopt` (only when you control the runtime environment)
+
+```bash
+# Example only: requires GNU getopt
+PARSED=$(getopt --options hvf: --long help,verbose,file: --name "$0" -- "$@") || exit 2
+# shellcheck disable=SC2086
+eval set -- "$PARSED"
+while true; do
+  case "$1" in
+    -h|--help) usage ;;
+    -v|--verbose) VERBOSE=1; shift ;;
+    -f|--file) FILE="$2"; shift 2 ;;
+    --) shift; break ;;
+  esac
+done
+```
+
+If portability matters (e.g., macOS), avoid relying on `getopt`.
+
+---
+
+## 3) Usage printing best practices
+
+* Print help to **stdout** for a normal `-h`/`--help` invocation.
+* Print usage after an error to **stderr** and exit non-zero.
+* Keep usage short, then include an extended `--help` description if needed.
+* Prefer `cat <<'USAGE'` to maintain exact text and avoid variable expansion in the help block.
+* Provide `Examples:` and `Exit codes:` sections to reduce support questions.
+
+---
+
+## 4) Validation & required options
+
+After parsing, validate required arguments explicitly:
+
+```bash
+if [[ -z "$FILE" ]]; then
+  usage "--file is required"
+fi
+```
+
+---
+
+## 5) Logging & verbosity
+
+A simple pattern:
+
+```bash
+log() { [[ ${VERBOSE:-0} -eq 1 ]] && printf '%s\n' "$*" >&2; }
+log "Debug: file=$FILE"
+```
+
+Put debug output on stderr so that stdout can be used for machine-readable output.
+
+---
+
+## 6) Example: Minimal, robust script skeleton
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
 IFS=$'\n\t'
 
-print_usage() {
-  cat <<'USAGE'
-Simple CA
+usage() { ... } # use the usage() from above
 
-Usage:
-  simpleca <command> [options]
+die() { ... }
 
-Commands:
-  init        Initialize root and intermediate CA
-  issue       Issue a server certificate
-  eject       Archive current CA state
-  re-init     Restore CA from archive
-  validate    Validate a certificate/chain
-  version     Print version info
-  help        Show this help
+# Defaults
+VERBOSE=0
+FILE=""
 
-Global options:
-  -h, --help          Show help
-  -q, --quiet         Reduce output
-  -v, --verbose       Increase output
-      --no-color      Disable colors
-      --non-interactive  Fail if input would be prompted
-USAGE
-}
+# Manual parsing for portability
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help) usage ;;
+    -v|--verbose) VERBOSE=1; shift ;;
+    -f|--file)
+      if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+        FILE="$2"; shift 2
+      else
+        usage "--file requires an argument"
+      fi
+      ;;
+    --) shift; break ;;
+    -*) usage "Unknown option: $1" ;;
+    *) break ;;
+  esac
+done
 
-fatal() { printf '\e[31m[ERR]\e[0m %s\n' "$1" >&2; exit "${2:-1}"; }
-info()  { [[ ${QUIET:-0} -eq 1 ]] || printf '[INFO] %s\n' "$1"; }
-debug() { [[ ${VERBOSE:-0} -ge 1 ]] && printf '[DBG] %s\n' "$1"; }
+# Validate
+if [[ -z "$FILE" ]]; then
+  usage "--file is required"
+fi
 
-parse_global_opts() {
-  QUIET=0; VERBOSE=0; NO_COLOR=0; NON_INTERACTIVE=0
-  # long->short mapping via -:
-  while getopts ':hqv-:' opt; do
-    case "$opt" in
-      h) print_usage; exit 0;;
-      q) QUIET=1;;
-      v) VERBOSE=$((VERBOSE+1));;
-      -)
-        case "$OPTARG" in
-          help) print_usage; exit 0;;
-          quiet) QUIET=1;;
-          verbose) VERBOSE=$((VERBOSE+1));;
-          no-color) NO_COLOR=1;;
-          non-interactive) NON_INTERACTIVE=1;;
-          *) fatal "Unknown option: --$OPTARG" 2;;
-        esac;;
-      :) fatal "Missing argument for -$OPTARG" 2;;
-      \?) fatal "Unknown option: -$OPTARG" 2;;
-    esac
-  done
-  shift $((OPTIND-1))
-  OPTIND=1
-  echo "$@" # print remaining args for caller to capture
-}
-
-# Example subcommand parser
-parse_issue_opts() {
-  SERVER_CN=''; SERVER_SANS=''; KEY_TYPE=''; RSA_BITS=''; EC_CURVE=''; PASS_FILE=''
-  local _args; _args=$(parse_global_opts "$@") || exit $?
-  # shellcheck disable=SC2206
-  set -- ${_args}
-  while getopts ':c:s:k:r:e:p:-:' opt; do
-    case "$opt" in
-      c) SERVER_CN="$OPTARG";;
-      s) SERVER_SANS="$OPTARG";;
-      k) KEY_TYPE="$OPTARG";;
-      r) RSA_BITS="$OPTARG";;
-      e) EC_CURVE="$OPTARG";;
-      p) PASS_FILE="$OPTARG";;
-      -)
-        case "$OPTARG" in
-          cn=*) SERVER_CN="${OPTARG#cn=}";;
-          sans=*) SERVER_SANS="${OPTARG#sans=}";;
-          key-type=*) KEY_TYPE="${OPTARG#key-type=}";;
-          rsa-bits=*) RSA_BITS="${OPTARG#rsa-bits=}";;
-          ec-curve=*) EC_CURVE="${OPTARG#ec-curve=}";;
-          pass-file=*) PASS_FILE="${OPTARG#pass-file=}";;
-          *) fatal "Unknown --$OPTARG" 2;;
-        esac;;
-      :) fatal "Missing argument for -$OPTARG" 2;;
-      \?) fatal "Unknown option: -$OPTARG" 2;;
-    esac
-  done
-  shift $((OPTIND-1))
-  [[ -n "$SERVER_CN" ]] || fatal 'Missing required: --cn <hostname>' 2
-}
+# Main
+log() { [[ ${VERBOSE:-0} -eq 1 ]] && printf '%s\n' "$*" >&2; }
+log "Processing $FILE"
+# ... rest of script ...
 ```
 
-Configuration precedence
-- CLI options > environment variables > `.env` file > hardcoded defaults
-- Load `.env` only if present; do not overwrite already-set env values
-- Example loader:
-```bash
-load_dotenv() {
-  local f=${1:-".env"}; [[ -f "$f" ]] || return 0
-  # Export only lines like KEY=VALUE, ignoring comments and blanks
-  while IFS='=' read -r k v; do
-    [[ "$k" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-    [[ -v $k ]] && continue
-    export "$k"="$v"
-  done < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$f" | sed 's/^export //')
-}
-```
+---
 
-Password and non-interactive handling
-- Provide `--pass-file` or `--pass-env VAR` to avoid interactive prompts in CI
-- If `--non-interactive` is set and no password provided, exit with a clear error
-- Never echo passphrases; prefer `-pass file:"$PASS_FILE"` for OpenSSL
+## 7) Extra tips & gotchas
 
-Validation and normalization
-- Enumerations: `KEY_TYPE` ∈ {`ec`,`rsa`}; `EC_CURVE` ∈ {`prime256v1`,`secp384r1`}
-- Numeric ranges: `RSA_BITS` ≥ 2048; `LEAF_DAYS` ≤ 825 by default
-- SANs: allow comma-separated `DNS:x,IP:y`; validate each entry; default to `DNS:${SERVER_CN}` if empty
-- Paths: assert mounted directories exist and are writable; compute absolute paths early
+* Prefer `[[ ... ]]` to `[ ... ]` for safer string handling in bash.
+* When building complex CLI tools, consider rewriting in a language with a CLI library (Go, Python, Rust) if you need advanced subcommands or argument parsing.
+* Document exit codes in your help text.
+* Keep `usage` help up-to-date — tests that run `myscript --help` and assert non-zero usage-output changes are a worthwhile investment.
 
-Logging and UX
-- Support `--verbose` (multi-level) and `--quiet`
-- Respect `NO_COLOR`/`--no-color`
-- Write logs to stdout/stderr; never to files by default
-- Print actionable errors: what failed, which file/arg, and how to fix
+---
 
-Idempotency and safety
-- Re-running `init` should require `--force` if directories already exist
-- Use atomic writes for generated files: write to temp, then `mv` into place
-- Set correct permissions explicitly after creation
+## 8) Quick checklist before shipping a script
 
-CI and quality gates
-- Lint: `shellcheck` on all `src/*.sh`; `bash -n` for syntax check
-- Unit/integration tests with `bats` for: parsing, env precedence, dry-run behavior
-- Smoke tests (non-interactive): initialize, issue, verify chain; ensure no `-legacy` needed
+* [ ] Script starts with `set -euo pipefail` and `IFS` set.
+* [ ] `-h|--help` prints to stdout.
+* [ ] Errors print friendly messages + usage to stderr.
+* [ ] Required options validated after parsing.
+* [ ] Quoting applied everywhere (e.g. `"$var"`).
+* [ ] Use `printf` not `echo` for portability.
 
-Compatibility and portability
-- Prefer Bash features; ensure the image includes `bash`
-- Do not depend on GNU `getopt`; the skeleton above works on Alpine/BusyBox
-- Keep old flag aliases temporarily; print deprecation notices with a removal version
+---
 
-Examples (proposed)
-- Issue EC cert with SANs and non-interactive password file:
-  - `simpleca issue --cn api.local --sans DNS:api.local,DNS:api --key-type ec --ec-curve prime256v1 --pass-file /run/secret/server.pass`
-- Issue RSA cert using env overrides:
-  - `KEY_TYPE=rsa RSA_BITS=3072 simpleca issue -c web.local`
-- Initialize with force re-create:
-  - `simpleca init --force`
+If you'd like, I can:
 
-Implementation notes for this repo
-- Update `Dockerfile` to install `bash` and keep image small (`alpine:3.x` + `apk add --no-cache bash openssl`)
-- Convert existing scripts to the skeleton pattern; centralize parsing in `main.sh`
-- Keep sensitive defaults off: require explicit flags/env for destructive operations
-- Add `--version` flag printing git commit/tag to aid debugging
+* Turn one of the examples into a complete ready-to-run script file.
+* Integrate these rules back into your original `bash-ninja.mdc` content with in-place diffs.
+
+Tell me which you'd prefer and I'll update the canvas.
