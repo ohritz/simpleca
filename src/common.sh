@@ -52,14 +52,20 @@ if [[ "$KEY_TYPE" == "rsa" ]] && [[ "${RSA_BITS:-0}" -lt 2048 ]]; then
 fi
 
 # Paths and files (respect env overrides)
-: "${basePath:=/opt/ca}"
+# Compute XDG data directory default
+default_xdg_data_dir="${XDG_DATA_HOME:-$HOME/.local/share}"
+
+# Default basePath to XDG location when not set
+: "${basePath:=${default_xdg_data_dir}/simple-ca}"
 : "${rootCAPath:=${basePath}/root}"
 : "${intermediatePath:=${basePath}/intermediate}"
 
-: "${rootConfig:=/opt/tools/openssl-root.cnf}"
-: "${intermediateConfig:=/opt/tools/openssl-intermediate.cnf}"
+# Default config files to script directory when not set
+: "${rootConfig:=${SCRIPT_DIR}/openssl-root.cnf}"
+: "${intermediateConfig:=${SCRIPT_DIR}/openssl-intermediate.cnf}"
 
-: "${exportDir:=/opt/export}"
+# Default export directory to XDG location when not set
+: "${exportDir:=${default_xdg_data_dir}/simple-ca/export}"
 
 rootCAKey="${rootCAPath}/private/ca.key.pem"
 rootCaCert="${rootCAPath}/certs/ca.cert.pem"

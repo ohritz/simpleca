@@ -1,0 +1,412 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+> Goal: Stand up a simple, **offline Root CA** + **online Intermediate CA** and **issue TLS certs** via reproducible Bash scripts that wrap `openssl`.
+> Style: “mdc” markdown you can drop into a repo and hand to a Cursor agent.
+
+## 0) Design at a Glance
+
+* **Root CA**: offline, used rarely (create intermediates, rotate, revoke an intermediate).
+* **Intermediate CA**: online (or tightly controlled), issues end-entity certs.
+* **Stateful CA DB**: OpenSSL `index.txt`, `serial`, `crlnumber` maintained per CA.
+* **Immutable artifacts**: certs & CRLs in `/certs`, private keys in `/private` (0600).
+* **Idempotent scripts**: safe re-runs, explicit “exists/verify/abort” checks.
+* **Profiles**: reusable OpenSSL config (`.cnf`) + named extensions (server, client, ocsp).
+* **Auditing**: stdout + append-only log; hash every operation.
+* **Rotation**: scripted key+cert rollover with overlap and CRL/OCSP continuity.
+
+---
+
+## 1) Repo Layout
+
+```
+pki/
+├─ bin/                      # all executables (bash)
+│  ├─ ca-init-root.sh
+│  ├─ ca-init-int.sh
+│  ├─ ca-issue.sh
+│  ├─ ca-revoke.sh
+│  ├─ ca-crl.sh
+│  ├─ ca-ocsp.sh
+│  ├─ ca-verify.sh
+│  ├─ gen-csr.sh
+│  ├─ rotate-int.sh
+│  └─ util.sh                # shared helpers (die/info/umask/lock)
+├─ etc/
+│  ├─ openssl-root.cnf
+│  ├─ openssl-int.cnf
+│  ├─ profiles/
+│  │  ├─ server.ext
+│  │  ├─ client.ext
+│  │  ├─ mTLS.ext
+│  │  └─ ocsp.ext
+│  └─ policy/
+│     ├─ policy_anything.txt
+│     └─ policy_strict.txt
+├─ ca/
+│  ├─ root/
+│  │  ├─ private/            # 0600 (never commit)
+│  │  ├─ certs/
+│  │  ├─ crl/
+│  │  ├─ newcerts/
+│  │  ├─ db/                 # index.txt, serial, crlnumber
+│  │  └─ csr/
+│  └─ intermediate/
+│     ├─ private/            # 0600
+│     ├─ certs/
+│     ├─ crl/
+│     ├─ newcerts/
+│     ├─ db/
+│     └─ csr/
+├─ out/
+│  ├─ bundles/               # chain.pem, fullchain.pem
+│  └─ issued/                # per CN/SAN dir
+├─ Makefile
+├─ .env                      # defaults (CN, org, durations)
+├─ .gitignore
+└─ README.md
+```
+
+**.gitignore** should exclude any `private/` and `db/` files, plus `out/issued/*` if you don’t intend to version end-entity certs.
+
+---
+
+## 2) Environment & Defaults (`.env`)
+
+```bash
+# CA subjects
+ROOT_CN="Acme Offline Root CA"
+ROOT_DAYS=7300                 # 20 years
+INT_CN="Acme TLS Issuing CA"
+INT_DAYS=1825                  # 5 years
+
+# End-entity defaults
+LEAF_DAYS=397                  # Browsers’ cap guidance
+KEY_BITS=4096
+KEY_TYPE="rsa"                 # or "ec"
+EC_CURVE="prime256v1"
+
+# CRL / OCSP
+CRL_DAYS=7
+OCSP_PORT=2560
+
+# Paths
+PKI_DIR="$(pwd)"
+```
+
+> Scripts should `set -euo pipefail`, `umask 077`, and source `.env`.
+
+---
+
+## 3) OpenSSL Configs (key points)
+
+**Root CNF** (`etc/openssl-root.cnf`):
+
+* `dir = ./ca/root`
+* `database = $dir/db/index.txt`
+* `serial = $dir/db/serial`
+* `new_certs_dir = $dir/newcerts`
+* **Extensions**:
+
+  * `v3_ca`: `basicConstraints=critical,CA:TRUE,pathlen:1`
+  * `keyUsage=critical,keyCertSign,cRLSign`
+  * `subjectKeyIdentifier=hash`, `authorityKeyIdentifier=keyid:always,issuer`
+
+**Intermediate CNF** (`etc/openssl-int.cnf`):
+
+* `dir = ./ca/intermediate`
+* same DB/serial/newcerts layout
+* `policy = policy_anything` (or strict)
+* **Extensions**:
+
+  * `v3_intermediate_ca`: `basicConstraints=critical,CA:TRUE,pathlen:0`
+  * `keyUsage=critical,keyCertSign,cRLSign`
+  * `authorityKeyIdentifier=keyid,issuer`
+* **End-entity profiles** loaded via `-extfile`:
+
+  * `server.ext`: `basicConstraints=CA:FALSE`, `keyUsage=critical,digitalSignature,keyEncipherment`, `extendedKeyUsage=serverAuth`, SANs required.
+  * `client.ext`: EKU `clientAuth`.
+  * `mTLS.ext`: EKU `serverAuth,clientAuth`.
+  * `ocsp.ext`: EKU `OCSPSigning`, `extendedKeyUsage=OCSPSigning`, `noCheck` (optional), `keyUsage=digitalSignature`.
+
+---
+
+## 4) Script Responsibilities
+
+### `bin/ca-init-root.sh`
+
+* Create `ca/root/{private,certs,crl,newcerts,db,csr}`; seed DB files:
+
+  * `: > db/index.txt`; `echo 1000 > db/serial`; `echo 1000 > db/crlnumber`
+* Generate Root key:
+
+  * RSA: `openssl genrsa -out private/ca.key.pem ${KEY_BITS}`
+  * EC: `openssl ecparam -name "${EC_CURVE}" -genkey -noout -out private/ca.key.pem`
+* Self-sign root cert:
+
+  * `openssl req -config etc/openssl-root.cnf -key private/ca.key.pem -new -x509 -days $ROOT_DAYS -sha256 -subj "/CN=$ROOT_CN" -extensions v3_ca -out certs/ca.cert.pem`
+* Write `out/bundles/root.pem` (root only).
+* Log SHA256 fingerprints.
+
+### `bin/ca-init-int.sh`
+
+* Generate intermediate key + CSR:
+
+  * key → `ca/intermediate/private/ca.key.pem`
+  * csr → `ca/intermediate/csr/intermediate.csr.pem`
+* Sign with Root:
+
+  * `openssl ca -config etc/openssl-root.cnf -extensions v3_intermediate_ca -days $INT_DAYS -notext -md sha256 -in ca/intermediate/csr/intermediate.csr.pem -out ca/intermediate/certs/ca.cert.pem`
+* Build chain:
+
+  * `cat ca/intermediate/certs/ca.cert.pem ca/root/certs/ca.cert.pem > out/bundles/intermediate-chain.pem`
+
+### `bin/gen-csr.sh`
+
+* Generate **end-entity** private key and CSR for a CN and SAN list.
+* Support file or args for SANs (comma/space separated).
+* Create minimal CSR config on-the-fly if SANs are passed:
+
+  * `[ req ] prompt = no; [ dn ]; CN=...; [ req_ext ]; subjectAltName=DNS:...,IP:...`
+* Output:
+
+  * `out/issued/<CN>/private.key.pem`
+  * `out/issued/<CN>/req.csr.pem`
+
+### `bin/ca-issue.sh`
+
+* Inputs: `CN`, `profile` (server|client|mTLS|ocsp), `days`, `san-file?`
+* Verify CSR, ensure CN/SAN policy, then:
+
+  * `openssl ca -batch -config etc/openssl-int.cnf -extensions ${profile} -extfile etc/profiles/${profile}.ext -days ${LEAF_DAYS} -notext -md sha256 -in req.csr.pem -out cert.pem`
+* Emit:
+
+  * `out/issued/<CN>/cert.pem`
+  * `out/issued/<CN>/fullchain.pem` (leaf + intermediate)
+* Post-issue: append JSON/YAML metadata (CN, SANs, serial, expiry) for inventory.
+
+### `bin/ca-revoke.sh`
+
+* Inputs: serial or path to `cert.pem`; reason.
+* `openssl ca -config etc/openssl-int.cnf -revoke cert.pem -crl_reason <reason>`
+* Trigger `bin/ca-crl.sh`.
+
+### `bin/ca-crl.sh`
+
+* Generate CRL for Root/Intermediate as needed:
+
+  * `openssl ca -config etc/openssl-int.cnf -gencrl -out ca/intermediate/crl/ca.crl.pem`
+* Publish to `out/bundles/` (symlink `latest.crl.pem`).
+* Optionally convert to DER for some consumers.
+
+### `bin/ca-ocsp.sh` (optional)
+
+* Create OCSP responder cert (profile `ocsp.ext`).
+* Run responder:
+
+  * `openssl ocsp -port $OCSP_PORT -index ca/intermediate/db/index.txt -CA out/bundles/intermediate-chain.pem -rkey ocsp.key.pem -rsigner ocsp.cert.pem -ignore_err -nmin 1`
+* Provide a one-shot `ocsp-query` helper.
+
+### `bin/ca-verify.sh`
+
+* Chain check:
+
+  * `openssl verify -CAfile out/bundles/intermediate-chain.pem out/issued/<CN>/cert.pem`
+* Lint SAN/CN, key usage, EKU.
+* Exit non-zero on failure for CI.
+
+### `bin/rotate-int.sh`
+
+* Create **new** intermediate (key+CSR), sign with Root, produce `intermediate-chain-vNEXT.pem`.
+* Dual-publish: old + new chains during a grace period.
+* Reissue OCSP signer if used.
+* Update CRL distribution points/OCSP URLs if embedded.
+
+---
+
+## 5) Profiles (`etc/profiles/*.ext`) — Examples
+
+**server.ext**
+
+```
+basicConstraints=CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth
+subjectAltName=@alt_names
+authorityKeyIdentifier=keyid,issuer
+```
+
+**client.ext**
+
+```
+basicConstraints=CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=clientAuth
+```
+
+**mTLS.ext**
+
+```
+basicConstraints=CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth,clientAuth
+subjectAltName=@alt_names
+```
+
+**ocsp.ext**
+
+```
+basicConstraints=CA:FALSE
+keyUsage=critical,digitalSignature
+extendedKeyUsage=OCSPSigning
+```
+
+> Your `-extfile` can reference an `@alt_names` section that the script emits temporarily for each issuance.
+
+---
+
+## 6) Makefile Targets (quality-of-life)
+
+```makefile
+SHELL := /usr/bin/env bash
+.ONESHELL:
+.SILENT:
+
+include .env
+export
+
+.PHONY: root int crl verify clean
+
+root:
+	./bin/ca-init-root.sh
+
+int: root
+	./bin/ca-init-int.sh
+
+issue:
+	./bin/gen-csr.sh $(CN) $(SAN)
+	./bin/ca-issue.sh $(CN) server
+
+revoke:
+	./bin/ca-revoke.sh $(CN) $(REASON)
+
+crl:
+	./bin/ca-crl.sh
+
+verify:
+	./bin/ca-verify.sh $(CN)
+
+clean:
+	rm -rf out/issued/$(CN)
+```
+
+---
+
+## 7) Security & Ops Practices
+
+* **Root isolation**: keep `ca/root/private/ca.key.pem` offline (USB + sealed vault). Use **air-gapped** VM or a sealed container runtime when you must sign.
+* **File perms**: `umask 077`; chmod `600` for all private keys; `700` for directories under `private/`.
+* **Locking**: simple `flock` or PID files in `db/` to prevent concurrent DB corruption.
+* **Auditing**: append JSON lines to `out/ops.log` with op, who, when, inputs, outputs, SHA256s.
+* **Backups**: `private/`, `db/`, and `certs/` are critical. Test restore.
+* **Policy**: enforce SAN presence for TLS; reject wildcard unless explicitly allowed; require minimum key size / curve.
+* **Validity**: don’t exceed ecosystem caps (e.g., \~398 days for public TLS; for private PKI you define policy but stay sane).
+* **Revocation**: automate CRL regeneration on every revoke; version CRLs; publish to an internal URL. If you embed `crlDistributionPoints`/`authorityInfoAccess`, point them to reachable endpoints.
+* **Rotation**: plan shadow issuance with vNEXT intermediate; verify before cutover.
+* **Deterministic subjects**: use stable O/OU, and unique CN + SANs; avoid embedding volatile metadata in subject DN.
+
+---
+
+## 8) Example: Issue a Server Cert
+
+```bash
+# 1) Generate CSR
+./bin/gen-csr.sh --cn api.internal.example.com \
+  --san DNS:api.internal.example.com,DNS:api,IP:10.20.30.40 \
+  --key-type ec --ec-curve prime256v1
+
+# 2) Issue (server profile)
+./bin/ca-issue.sh --cn api.internal.example.com --profile server --days 365
+
+# 3) Verify
+./bin/ca-verify.sh --cn api.internal.example.com
+
+# Outputs
+# out/issued/api.internal.example.com/private.key.pem
+# out/issued/api.internal.example.com/cert.pem
+# out/issued/api.internal.example.com/fullchain.pem
+```
+
+---
+
+## 9) Integration Tips (Kubernetes / CI)
+
+* **K8s Secrets**: package `private.key.pem` + `fullchain.pem` into `tls` Secret (key: `tls.key`, `tls.crt`). Automate with a small wrapper that base64-encodes and applies YAML.
+* **Reload**: sidecar to watch Secret, send `SIGHUP` to servers that support live reload (nginx, haproxy, envoy).
+* **CI checks**: run `ca-verify.sh` on PRs; lint `SAN` correctness; block issuance without SANs for TLS.
+* **Inventory**: push issuance metadata to a central registry (CSV/JSON in a repo or a small SQLite db) for expiries/alerts.
+
+---
+
+## 10) Minimal `util.sh` (shared helpers)
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+umask 077
+
+log() { printf '[%s] %s\n' "$(date -Is)" "$*" | tee -a out/ops.log; }
+die() { log "ERROR: $*"; exit 1; }
+
+need() { command -v "$1" >/dev/null || die "missing dependency: $1"; }
+need openssl
+mkdir -p out/bundles out/issued
+
+lock() {
+  mkdir -p .locks
+  exec {LOCKFD}<>".locks/$1.lock"
+  flock -n "$LOCKFD" || die "another operation is in progress: $1"
+}
+```
+
+> Each script should `source "$(dirname "$0")/util.sh"` and `lock ca-int` or `lock ca-root` accordingly.
+
+---
+
+## 11) Testing Matrix (what to verify regularly)
+
+* **Chain**: leaf → intermediate → root validates with `openssl verify -untrusted intermediate.pem -CAfile root.pem`.
+* **Key usage/EKU**: server certs have `serverAuth`, clients have `clientAuth`.
+* **CRL**: revoked certs show `R` in `index.txt`; `openssl verify -crl_check`.
+* **OCSP**: query returns `good`/`revoked` for recent issuances.
+* **Rotation drill**: create a vNEXT intermediate, reissue a leaf, ensure clients succeed with both chains during overlap.
+
+---
+
+## 12) What Not to Do
+
+* Don’t run the **Root CA online**.
+* Don’t modify `db/index.txt` manually.
+* Don’t ship keys with group/world perms.
+* Don’t issue TLS certs **without SANs** (CN is not enough).
+* Don’t exceed sensible lifetimes or mix EKUs arbitrarily.
+
+---
+
+## 13) Next Steps for the Cursor Agent
+
+1. Scaffold the tree above.
+2. Generate `etc/openssl-*.cnf` using the directives outlined.
+3. Implement each `bin/*.sh` with:
+
+   * `set -euo pipefail`, `source util.sh`, argument parsing (`getopts`), and `flock`.
+   * Clear stdout messages + append-only JSON log entries.
+4. Add Make targets & a GitHub Actions workflow to run `verify` on PR.
+5. Write a sample “golden path” e2e script under `tests/`:
+
+   * init root → init intermediate → issue → revoke → CRL/OCSP check.
+
+

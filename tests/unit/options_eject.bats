@@ -7,6 +7,7 @@ load "../helpers/test_helper.bash"
 
 setup() {
     setup_test_dirs "options-eject"
+    setup_test_env
     setup_cleanup_trap
 }
 

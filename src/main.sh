@@ -69,9 +69,12 @@ Global options:
   -v, --verbose       Increase output
       --no-color      Disable colors
       --non-interactive  Fail if input would be prompted
+      --base-path DIR Override CA base directory (default: ~/.local/share/simple-ca)
+      --export-dir DIR Override export directory (default: ~/.local/share/simple-ca/export)
 
 Examples:
   simpleca init
+  simpleca --base-path /tmp/ca init
   simpleca issue --cn api.local --sans DNS:api.local,DNS:api
   simpleca validate
 USAGE
@@ -93,6 +96,24 @@ while [[ $# -gt 0 ]]; do
 		-v|--verbose) VERBOSE=$((VERBOSE+1)); shift; continue;;
 		--no-color) NO_COLOR=1; shift; continue;;
 		--non-interactive) NON_INTERACTIVE=1; export NON_INTERACTIVE; shift; continue;;
+		--base-path)
+			if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+				export basePath="$2"
+				shift 2
+			else
+				fatal "--base-path requires an argument" 2
+			fi
+			continue
+			;;
+		--export-dir)
+			if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+				export exportDir="$2"
+				shift 2
+			else
+				fatal "--export-dir requires an argument" 2
+			fi
+			continue
+			;;
 		--) shift; break;;
 		-*) # unknown flag
 			fatal "Unknown option: $1" 2;;
