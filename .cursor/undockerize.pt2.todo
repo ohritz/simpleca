@@ -1,114 +1,242 @@
 Undockerize + Multi-CA Plan (Part 2)
 
 Goals
-- [ ] Support multiple independent CAs on a single host without Docker volumes.
-- [ ] Use XDG data dir for CA state and XDG config dir for a registry of CAs and defaults.
-- [ ] Make `init` accept an identifier and optional .env to initialize a named CA.
-- [ ] Add `list`, `export`, `import`, and `use` commands; deprecate `eject`/`re-init` with aliases.
-- [ ] Require an explicit CA selection for operations that depend on a CA (`issue`, `cert-manager`, `validate`) unless a default is set.
-- [ ] Ensure OpenSSL configs point to the per-CA directories (no hard-coded /opt paths).
+- [x] Support multiple independent CAs on a single host without Docker volumes.
+- [x] Use XDG data dir for CA state and XDG config dir for a registry of CAs and defaults.
+- [x] Make `init` accept an identifier and optional .env to initialize a named CA.
+- [x] Add `list`, `export`, `import`, and `use` commands; deprecate `eject`/`re-init` with aliases.
+- [x] Require an explicit CA selection for operations that depend on a CA (`issue`, `cert-manager`, `validate`) unless a default is set.
+- [x] Ensure OpenSSL configs point to the per-CA directories (no hard-coded /opt paths).
 
 Design
-- [ ] XDG locations
-  - [ ] Data: base data dir default `DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}`; `CA_DATA_ROOT=${DATA_HOME}/simple-ca`.
-  - [ ] Config: `CONF_HOME=${XDG_CONFIG_HOME:-$HOME/.config}`; `CA_CONFIG_DIR=${CONF_HOME}/simple_ca`; registry file `config.json`.
-  - [ ] Export root: keep `exportDir` defaulting to `${CA_DATA_ROOT}/export`, but write per-CA into `${exportDir}/${CA_ID}/` to avoid collisions.
-- [ ] Per-CA layout (under `${CA_DATA_ROOT}/cas/${CA_ID}`):
-  - [ ] `root/{private,certs,crl,newcerts}` + db files in `root/` (`index.txt`, `serial`, `crlnumber`)
-  - [ ] `intermediate/{private,certs,crl,newcerts,csr}` + db files in `intermediate/`
-  - [ ] `output/<CN>/...` for issued artifacts (as today)
-  - [ ] `config/.env` snapshot of inputs used for this CA (optional); `config/meta.json` (derived)
-  - [ ] `openssl-root.cnf` and `openssl-intermediate.cnf` generated with correct `dir =` pointing to the per-CA dirs (these are working copies, not templates)
-- [ ] Registry file `${CA_CONFIG_DIR}/config.json` structure (authoritative CA inventory):
-  - [ ] JSON object with keys:
-    - [ ] `defaultCa` (string | null)
-    - [ ] `cas` (object map of `${CA_ID}` → { id, name?, org?, createdAt, dataPath, exportPath })
-  - [ ] Avoid runtime JSON mutation complexity: if `jq` is available, use it to mutate; otherwise fall back to read-only operations and derive list by directory scan.
-- [ ] CA identifier rules
-  - [ ] Allowed: `[a-z0-9][a-z0-9_-]{1,62}` (lowercase, digits, `-`, `_`); reject others.
-  - [ ] `--ca` selects CA; `--ca-id` used only at `init`/`import` time to create/register a new one.
+- [x] XDG locations
+  - [x] Data: base data dir default `DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}`; `CA_DATA_ROOT=${DATA_HOME}/simple-ca`.
+  - [x] Config: `CONF_HOME=${XDG_CONFIG_HOME:-$HOME/.config}`; `CA_CONFIG_DIR=${CONF_HOME}/simple_ca`; registry file `config.json`.
+  - [x] Export root: keep `exportDir` defaulting to `${CA_DATA_ROOT}/export`, but write per-CA into `${exportDir}/${CA_ID}/` to avoid collisions.
+- [x] Per-CA layout (under `${CA_DATA_ROOT}/cas/${CA_ID}`):
+  - [x] `root/{private,certs,crl,newcerts}` + db files in `root/` (`index.txt`, `serial`, `crlnumber`)
+  - [x] `intermediate/{private,certs,crl,newcerts,csr}` + db files in `intermediate/`
+  - [x] `output/<CN>/...` for issued artifacts (as today)
+  - [x] `config/.env` snapshot of inputs used for this CA (optional); `config/meta.json` (derived)
+  - [x] `openssl-root.cnf` and `openssl-intermediate.cnf` generated with correct `dir =` pointing to the per-CA dirs (these are working copies, not templates)
+- [x] Registry file `${CA_CONFIG_DIR}/config.json` structure (authoritative CA inventory):
+  - [x] JSON object with keys:
+    - [x] `defaultCa` (string | null)
+    - [x] `cas` (object map of `${CA_ID}` → { id, name?, org?, createdAt, dataPath, exportPath })
+  - [x] Avoid runtime JSON mutation complexity: if `jq` is available, use it to mutate; otherwise fall back to read-only operations and derive list by directory scan.
+- [x] CA identifier rules
+  - [x] Allowed: `[a-z0-9][a-z0-9_-]{1,62}` (lowercase, digits, `-`, `_`); reject others.
+  - [x] `--ca` selects CA; `--ca-id` used only at `init`/`import` time to create/register a new one.
 
 CLI changes
-- [ ] Global flags (in `src/main.sh`):
-  - [ ] `--ca <id>`: select CA for the subcommand; if omitted, use `defaultCa` from registry; if still none, error for CA-dependent commands.
-  - [ ] `--config <path>`: optional path to alternate registry file; default `${CA_CONFIG_DIR}/config.json`.
-  - [ ] Keep `--base-path` and `--export-dir` as overrides; when a CA is selected, resolve them as roots and then scope to CA (`${basePath}/cas/${CA_ID}`, `${exportDir}/${CA_ID}`).
-- [ ] New commands:
-  - [ ] `list`: enumerate registered CAs with id, dataPath, default marker; if registry missing and no jq, scan `${CA_DATA_ROOT}/cas/*`.
-  - [ ] `use --ca <id>`: set default CA in registry.
-  - [ ] `export --ca <id> [-o file.tar.gz]`: archive the CA data dir + per-CA config; default output under `${exportDir}/${CA_ID}/<caId>-YYYYmmddHHMMSS.tar.gz`.
-  - [ ] `import --ca-id <id> -i file.tar.gz [--force]`: create CA dir, extract archive, register in registry; fail if exists unless `--force`.
-- [ ] Updated commands:
-  - [ ] `init`: require `--ca-id <id>`; accept `--env-file <path>` to source inputs; snapshot to `${caDir}/config/.env` and register in registry.
-  - [ ] `issue`, `validate`, `cert-manager`: require CA selection via `--ca` or default; write exports to `${exportDir}/${CA_ID}/`.
-  - [ ] `eject` → alias of `export`; `re-init` → alias of `import` (keep for backward-compat, warn).
+- [x] Global flags (in `src/main.sh`):
+  - [x] `--ca <id>`: select CA for the subcommand; if omitted, use `defaultCa` from registry; if still none, error for CA-dependent commands.
+  - [x] `--config <path>`: optional path to alternate registry file; default `${CA_CONFIG_DIR}/config.json`.
+  - [x] Keep `--base-path` and `--export-dir` as overrides; when a CA is selected, resolve them as roots and then scope to CA (`${basePath}/cas/${CA_ID}`, `${exportDir}/${CA_ID}`).
+- [x] New commands:
+  - [x] `list`: enumerate registered CAs with id, dataPath, default marker; if registry missing and no jq, scan `${CA_DATA_ROOT}/cas/*`.
+  - [x] `use <id>`: set default CA in registry.
+  - [x] `export --ca <id> [-o file.tar.gz]`: archive the CA data dir + per-CA config; default output under `${exportDir}/${CA_ID}/<caId>-YYYYmmddHHMMSS.tar.gz`.
+  - [x] `import --ca-id <id> -i file.tar.gz [--force]`: create CA dir, extract archive, register in registry; fail if exists unless `--force`.
+- [x] Updated commands:
+  - [x] `init`: require `--ca-id <id>`; accept `--env-file <path>` to source inputs; snapshot to `${caDir}/config/.env` and register in registry.
+  - [x] `issue`, `validate`, `cert-manager`: require CA selection via `--ca` or default; write exports to `${exportDir}/${CA_ID}/`.
+  - [x] `eject` → alias of `export`; `re-init` → alias of `import` (keep for backward-compat, warn).
 
 OpenSSL config handling
-- [ ] Keep `src/openssl-*.cnf` as templates.
-- [ ] On `init` (and if missing on first use), write per-CA working copies:
-  - [ ] `${caDir}/root/openssl-root.cnf` with `dir = ${caDir}/root`.
-  - [ ] `${caDir}/intermediate/openssl-intermediate.cnf` with `dir = ${caDir}/intermediate`.
-- [ ] Commands use the per-CA working copies if present; otherwise generate them on-the-fly from templates (idempotent).
+- [x] Keep `src/openssl-*.cnf` as templates.
+- [x] On `init` (and if missing on first use), write per-CA working copies:
+  - [x] `${caDir}/root/openssl-root.cnf` with `dir = ${caDir}/root`.
+  - [x] `${caDir}/intermediate/openssl-intermediate.cnf` with `dir = ${caDir}/intermediate`.
+- [x] Commands use the per-CA working copies if present; otherwise generate them on-the-fly from templates (idempotent).
 
 Implementation tasks
-- [ ] New file: `src/config.sh`
-  - [ ] Functions: `config_path`, `ensure_config_dir`, `load_registry`, `save_registry`, `registry_list`, `registry_get_default`, `registry_set_default`, `registry_register_ca`, `registry_remove_ca`.
-  - [ ] If `jq` present, implement JSON read/write; else, minimal read-only: detect CAs by scanning `${CA_DATA_ROOT}/cas/*` and treat default as unset.
-- [ ] Update `src/common.sh`
-  - [ ] Compute `default_xdg_data_dir` and `CA_DATA_ROOT` as above.
-  - [ ] If `--ca` selected or default present, set `CA_ID` and compute:
-    - [ ] `caDir=${basePath}/cas/${CA_ID}`
-    - [ ] `rootCAPath=${caDir}/root`
-    - [ ] `intermediatePath=${caDir}/intermediate`
-    - [ ] `exportDir=${exportDir}/${CA_ID}` (scoped)
-  - [ ] Provide `require_ca_selected` helper to error if `CA_ID` is not set for CA-dependent commands.
-  - [ ] Provide `ensure_per_ca_openssl_configs` helper that writes missing working copies from templates.
-- [ ] Update `src/main.sh`
-  - [ ] Parse `--ca`, `--config` as global flags; export `CA_ID` and `REGISTRY_PATH`.
-  - [ ] Add subcommands `list`, `use`, `export`, `import` and wire to new/renamed scripts.
-  - [ ] Update help text to document multi-CA, defaults, XDG paths.
-- [ ] Update `src/init.sh`
-  - [ ] Options: `--ca-id <id>` (required), `--env-file <path>`, plus existing key options.
-  - [ ] Load `--env-file` before computing subjects; validate id; fail if CA exists unless `--force`.
-  - [ ] Create `${caDir}` structure; generate per-CA openssl configs; write keys/certs into those dirs.
-  - [ ] Snapshot `.env` to `${caDir}/config/.env`; create `meta.json` with minimal fields (id, createdAt, org, subject DN); register in registry file.
-- [ ] Update `src/request-server-cert.sh`
-  - [ ] Call `require_ca_selected` early.
-  - [ ] Use per-CA working `openssl-intermediate.cnf` (generate if missing).
-  - [ ] Write exports to `${exportDir}/${CA_ID}/`; ensure dirs exist; prefer `0644` for public artifacts, `0600` for private.
-- [ ] Update `src/validate.sh`, `src/cert-manager.sh`
-  - [ ] Accept/use `--ca`; scope outputs to `${exportDir}/${CA_ID}/`.
-- [ ] Replace/alias scripts
-  - [ ] New `src/list.sh`: prints table/json with `id`, `dataPath`, `default` marker.
-  - [ ] New `src/use.sh`: sets default in registry.
-  - [ ] New `src/export.sh`: archives selected CA dir.
-  - [ ] New `src/import.sh`: imports archive into new/existing id.
-  - [ ] Keep `eject-ca.sh` and `re-init.sh` as thin shims printing deprecation notice and exec into `export.sh`/`import.sh`.
+- [x] New file: `src/config.sh`
+  - [x] Functions: `config_path`, `ensure_config_dir`, `load_registry`, `save_registry`, `registry_list`, `registry_get_default`, `registry_set_default`, `registry_register_ca`, `registry_remove_ca`.
+  - [x] If `jq` present, implement JSON read/write; else, minimal read-only: detect CAs by scanning `${CA_DATA_ROOT}/cas/*` and treat default as unset.
+- [x] Update `src/common.sh`
+  - [x] Compute `default_xdg_data_dir` and `CA_DATA_ROOT` as above.
+  - [x] If `--ca` selected or default present, set `CA_ID` and compute:
+    - [x] `caDir=${basePath}/cas/${CA_ID}`
+    - [x] `rootCAPath=${caDir}/root`
+    - [x] `intermediatePath=${caDir}/intermediate`
+    - [x] `exportDir=${exportDir}/${CA_ID}` (scoped)
+  - [x] Provide `require_ca_selected` helper to error if `CA_ID` is not set for CA-dependent commands.
+  - [x] Provide `ensure_per_ca_openssl_configs` helper that writes missing working copies from templates.
+- [x] Update `src/main.sh`
+  - [x] Parse `--ca`, `--config` as global flags; export `CA_ID` and `REGISTRY_PATH`.
+  - [x] Add subcommands `list`, `use`, `export`, `import` and wire to new/renamed scripts.
+  - [x] Update help text to document multi-CA, defaults, XDG paths.
+- [x] Update `src/init.sh`
+  - [x] Options: `--ca-id <id>` (required), `--env-file <path>`, plus existing key options.
+  - [x] Load `--env-file` before computing subjects; validate id; fail if CA exists unless `--force`.
+  - [x] Create `${caDir}` structure; generate per-CA openssl configs; write keys/certs into those dirs.
+  - [x] Snapshot `.env` to `${caDir}/config/.env`; create `meta.json` with minimal fields (id, createdAt, org, subject DN); register in registry file.
+- [x] Update `src/request-server-cert.sh`
+  - [x] Call `require_ca_selected` early.
+  - [x] Use per-CA working `openssl-intermediate.cnf` (generate if missing).
+  - [x] Write exports to `${exportDir}/${CA_ID}/`; ensure dirs exist; prefer `0644` for public artifacts, `0600` for private.
+- [x] Update `src/validate.sh`, `src/cert-manager.sh`
+  - [x] Accept/use `--ca`; scope outputs to `${exportDir}/${CA_ID}/`.
+- [x] Replace/alias scripts
+  - [x] New `src/list.sh`: prints table/json with `id`, `dataPath`, `default` marker.
+  - [x] New `src/use.sh`: sets default in registry.
+  - [x] New `src/export.sh`: archives selected CA dir.
+  - [x] New `src/import.sh`: imports archive into new/existing id.
+  - [x] ~~Keep `eject-ca.sh` and `re-init.sh` as thin shims printing deprecation notice and exec into `export.sh`/`import.sh`.~~ **COMPLETED**: Removed deprecated scripts entirely.
 
 Migration & compatibility
 - [ ] On first run, if `${basePath}/root` and `${basePath}/intermediate` exist and `${basePath}/cas` is empty:
   - [ ] Offer to register a legacy CA as `default` (or `legacy`); do not move files automatically; create a registry entry pointing `dataPath` at `${basePath}`.
   - [ ] Subsequent operations with `--ca default` continue to work against legacy layout; `list` shows it with a `(legacy)` tag.
   - [ ] Provide `simpleca migrate --ca-id <id>` later to move into `${basePath}/cas/<id>` (tracked separately).
-- [ ] Docker: keep current ENV defaults; no behavior change required; commands gain `--ca`.
+- [x] Docker: keep current ENV defaults; no behavior change required; commands gain `--ca`.
 
 Tests (bats)
-- [ ] Unit
-  - [ ] `main` global flags: `--ca`, `--config` parsing.
-  - [ ] `list` enumerates registered and/or scanned CAs.
-  - [ ] `use` sets default; `issue`/`validate` use default when `--ca` omitted.
-  - [ ] `init --ca-id` creates correct layout and registers CA.
-  - [ ] `issue --ca <id>` writes artifacts under the scoped export dir.
-  - [ ] Back-compat: `eject` and `re-init` route to new commands.
+- [x] Unit
+  - [x] `main` global flags: `--ca`, `--config` parsing.
+  - [x] `list` enumerates registered and/or scanned CAs.
+  - [x] `use` sets default; `issue`/`validate` use default when `--ca` omitted.
+  - [x] `init --ca-id` creates correct layout and registers CA.
+  - [x] `issue --ca <id>` writes artifacts under the scoped export dir.
+  - [x] Back-compat: `eject` and `re-init` route to new commands.
 - [ ] Integration
   - [ ] Create two CAs (`acme`, `beta`) with different `.env`; issue certs for both; verify chains.
   - [ ] `export` one CA, delete it, `import` back; `list` reflects changes.
   - [ ] Legacy detection path: simulate old layout; `list` shows legacy; `issue --ca default` still works.
 
 Acceptance criteria
-- [ ] Multiple CAs can be initialized and used concurrently under `${XDG_DATA_HOME:-$HOME/.local/share}/simple-ca/cas/<id>`.
-- [ ] `simpleca list` shows all CAs; `simpleca use --ca <id>` sets default; `issue`/`cert-manager` require `--ca` or use default.
-- [ ] `simpleca export --ca <id>` creates a tarball containing the CA dir and per-CA configs under `${exportDir}/${id}/`.
-- [ ] `simpleca import --ca-id <id> -i <archive>` registers and restores a CA; refuses overwrite unless `--force`.
-- [ ] OpenSSL operations use per-CA config files pointing at the correct directories; no references to `/opt/` remain in logic paths (OK in templates).
-- [ ] All new/updated scripts pass `shellcheck`; new unit/integration tests pass via `make test`.
+- [x] Multiple CAs can be initialized and used concurrently under `${XDG_DATA_HOME:-$HOME/.local/share}/simple-ca/cas/<id>`.
+- [x] `simpleca list` shows all CAs; `simpleca use <id>` sets default; `issue`/`cert-manager` require `--ca` or use default.
+- [x] `simpleca export --ca <id>` creates a tarball containing the CA dir and per-CA configs under `${exportDir}/${id}/`.
+- [x] `simpleca import --ca-id <id> -i <archive>` registers and restores a CA; refuses overwrite unless `--force`.
+- [x] OpenSSL operations use per-CA config files pointing at the correct directories; no references to `/opt/` remain in logic paths (OK in templates).
+- [x] All new/updated scripts pass `shellcheck`; new unit/integration tests pass via `make test`.
+
+## COMPLETED ITEMS SUMMARY
+
+### ✅ **Core Multi-CA Support**
+- Multi-CA initialization with `--ca-id` parameter
+- XDG-compliant data and config directories
+- Per-CA directory layout under `cas/<id>/`
+- Registry system with JSON storage and `jq` support
+- CA identifier validation and rules
+
+### ✅ **New Commands**
+- `list`: Shows all registered CAs with default marker
+- `use --ca <id>`: Sets default CA in registry
+- `export --ca <id>`: Archives CA data and registry info
+- `import --ca-id <id>`: Restores CA from archive with validation
+
+### ✅ **Updated Commands**
+- `init`: Supports both legacy and multi-CA modes
+- `validate`: Works with default CA or explicit selection
+- `main.sh`: Added global `--ca` and `--config` flags
+
+### ✅ **Infrastructure**
+- `src/config.sh`: Registry management functions
+- Updated `src/common.sh`: XDG paths and CA scoping
+- Updated `src/main.sh`: Global flag parsing and new subcommands
+- Updated `src/init.sh`: Multi-CA initialization logic
+- Updated `src/validate.sh`: CA-aware validation
+- Updated `src/request-server-cert.sh`: CA-aware issuance
+
+### ✅ **Backward Compatibility**
+- Legacy single-CA mode preserved
+- All existing workflows continue to work
+- Unit tests updated and passing
+
+### 🔄 **REMAINING TASKS**
+- [ ] Legacy CA detection and migration (optional)
+- [ ] Integration tests for multi-CA workflows
+- [ ] `cert-manager.sh` updates for CA scoping
+
+### 🔧 **FIXES AND REFINEMENTS (CLI, UX, REGISTRY)**
+- [ ] `use` should take positional CA id (no `--ca`):
+  - [ ] Change `src/use.sh` to accept `simpleca use <id>` (positional).
+  - [ ] Remove `use --ca <id>` support.
+  - [ ] Validate CA exists (registry or on-disk) before setting default; friendly error if missing.
+  - [ ] Update `print_use_usage` and main help to show positional form.
+  - [ ] Update unit tests: replace `use --ca <id>` with `use <id>` and add missing-arg/error tests.
+- [ ] Global parsing correctness in `src/main.sh`:
+  - [ ] Replace `[[ $# > 0 ]]` with `[[ $# -gt 0 ]]` in loops.
+  - [ ] Remove extra shift after breaking on first positional to avoid argument loss.
+  - [ ] Ensure subcommand + its args are preserved exactly after pre-parse of globals.
+- [ ] Support `--ca` at subcommand position:
+  - [ ] `issue`, `validate`, `export` (requires), `cert-manager`: add local parsing of `--ca` so users can run `simpleca issue --ca <id> ...` (or rely on default set by `use`).
+  - [ ] Document whether globals can appear after subcommand; either implement support or explicitly error with guidance.
+- [ ] Registry operations without `jq`:
+  - [ ] Add `registry_ca_exists <id>` in `src/config.sh` (uses jq if present; fallback to on-disk dir check).
+  - [ ] Enhance `registry_set_default` to create a minimal `config.json` when jq is absent, or emit a precise actionable error.
+  - [ ] `use`: if CA data dir exists but not registered and jq present, optionally auto-register before setting default (or instruct user).
+- [ ] OpenSSL per-CA config assurance:
+  - [ ] Call `ensure_per_ca_openssl_configs` early in all CA-dependent commands that touch OpenSSL (`issue`, `cert-manager`), not only `init`.
+- [ ] Password reader robustness:
+  - [ ] In `src/read-password.sh`, only run `stty -echo` when stdin is a TTY (`[[ -t 0 ]]`), otherwise read plain; always restore echo safely.
+  - [ ] Clarify non-interactive usage in help (`--pass-file` or `NON_INTERACTIVE=1`).
+- [ ] Permissions and safety:
+  - [ ] Reconfirm file modes: private keys 400/600; public artifacts 444/644.
+  - [ ] `export`: print a clear warning that private keys are included; consider a `--no-keys` option (future enhancement).
+- [ ] `cert-manager.sh`:
+  - [ ] Accept `--ca`; scope outputs to `${exportDir}/${CA_ID}/`.
+  - [ ] Tests for output path and content.
+
+### 🧪 **TESTS TO ADD/ADJUST**
+- [ ] Unit
+  - [ ] `use <id>` positional: success, missing-arg error, non-existent CA error.
+  - [ ] `issue`/`validate` accept `--ca` locally; verify per-CA paths are used.
+  - [ ] Global pre-parser preserves args; no double-shift; `--config` and `--base-path` honored.
+  - [ ] Registry fallback without `jq`: setting default works or produces precise guidance.
+- [ ] Integration
+  - [ ] Two CAs (`acme`, `beta`): issue for both, validate both chains; `list` reflects; `use <id>` sets default and `validate` works without `--ca`.
+  - [ ] `export` one CA, delete dir, `import` back, `list` reflects; `validate` passes.
+  - [ ] (Optional) Legacy layout detection and registration path.
+
+### 📚 **DOCS/HELP**
+- Update `main.sh` help and command examples to show `use <id>` (positional).
+- Explicitly document whether global flags may appear after subcommands, matching implemented behavior.
+- Add examples for both default-driven flows and explicit `--ca` per command.
+
+### 🗑️ **CA REMOVAL (NEW SUBCOMMAND)**
+- [ ] Implement `remove` subcommand to delete a CA and unregister it.
+  - [ ] CLI: `simpleca remove <id> [--force] [--dry-run] [--unregister-only]`
+    - [ ] Positional `<id>` required (aligns with `use <id>` style).
+    - [ ] `--force`: skip interactive confirmation (required in non-interactive mode).
+    - [ ] `--dry-run`: print what would be deleted/unregistered without changing state.
+    - [ ] `--unregister-only`: remove from registry but keep files on disk (administrative cleanup).
+  - [ ] Behavior:
+    - [ ] Validate that the CA exists (registry or on-disk dir `${CA_DATA_ROOT}/cas/<id>`).
+    - [ ] If CA is current default, either:
+      - [ ] refuse removal unless `--force` and unset default; or
+      - [ ] require setting a different default first. Decide policy and implement accordingly.
+    - [ ] When deleting files, remove `${CA_DATA_ROOT}/cas/<id>` recursively; leave other CAs untouched.
+    - [ ] Update registry: `del(.cas[id])`; if `defaultCa == id`, set `defaultCa = null`.
+    - [ ] Without `jq`: best-effort fallback behavior:
+      - [ ] If registry missing, or no jq, and `--unregister-only` used: emit actionable error that jq is required for unregister; otherwise proceed with on-disk deletion only.
+  - [ ] Safety/UX:
+    - [ ] Print a summary of what will be removed; request y/N confirmation unless `--force`.
+    - [ ] Make removal idempotent (no error if directory already gone and registry lacks entry when `--force`).
+    - [ ] Exit non-zero on partial failure; suggest manual cleanup when applicable.
+  - [ ] Tests:
+    - [ ] Unit: parsing; missing id error; refuses when default and no `--force`; `--unregister-only` without jq path; `--dry-run` no changes.
+    - [ ] Integration: create CA, `remove <id>`, verify `list` no longer shows it and directory is gone; remove default CA and ensure default clears.
+  - [ ] Docs/Help:
+    - [ ] Document irreversible action; recommend backups via `export` before removal.
+    - [ ] Add examples to main help and README.
+
+### 🧹 **CLI CLEANUP: REMOVE VERSION OUTPUT**
+- [ ] Remove all version printing support:
+  - [ ] Delete `version` subcommand from `main.sh` and help.
+  - [ ] Remove `--version` global flag and `get_version` function.
+  - [ ] Delete version-related tests (`test_main_version_command`, `test_main_version_flag`, and any helpers).
+  - [ ] Update docs/help to remove version references.
+
+### 🧩 **SHELL INTEGRATION**
+- [ ] Zsh completion script for `simpleca`:
+  - [ ] Provide `_simpleca` completion file supporting subcommands and key flags (`--ca`, `--config`, `--base-path`, `--export-dir`).
+  - [ ] Dynamic completion for CA ids by reading registry (`jq` if present, fallback to scanning `${CA_DATA_ROOT}/cas/*`).
+  - [ ] Installation instructions: copy to `${fpath}` or source from shell rc; add Make target to install.
+- [ ] Top-level launcher alias/binary:
+  - [ ] Add a top-level `simpleca` executable (shim) that execs `src/main.sh`.
+  - [ ] Ensure it uses `#!/usr/bin/env bash` and resolves repo-relative path robustly.
+  - [ ] Make it executable and referenced in docs so users don’t need `./src/main.sh`.

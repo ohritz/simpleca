@@ -93,18 +93,18 @@ teardown() {
     assert_output_contains "validate" "$output" || assert_output_contains "error" "$output"
 }
 
-@test "test_main_eject_subcommand" {
-    # Test eject subcommand dispatch
-    output=$(run_script "$SRC_DIR/main.sh" eject 2>&1 || true)
-    # Should contain eject-related output or error
-    assert_output_contains "eject" "$output" || assert_output_contains "error" "$output"
+@test "test_main_export_subcommand" {
+    # Test export subcommand dispatch
+    output=$(run_script "$SRC_DIR/main.sh" export 2>&1 || true)
+    # Should contain export-related output or error
+    assert_output_contains "export" "$output" || assert_output_contains "error" "$output"
 }
 
-@test "test_main_re_init_subcommand" {
-    # Test re-init subcommand dispatch
-    output=$(run_script "$SRC_DIR/main.sh" re-init 2>&1 || true)
-    # Should contain re-init-related output or error
-    assert_output_contains "re-init" "$output" || assert_output_contains "error" "$output"
+@test "test_main_import_subcommand" {
+    # Test import subcommand dispatch
+    output=$(run_script "$SRC_DIR/main.sh" import 2>&1 || true)
+    # Should contain import-related output or error
+    assert_output_contains "import" "$output" || assert_output_contains "error" "$output"
 }
 
 @test "test_main_cert_manager_subcommand_help" {

@@ -10,6 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 setup_error_handling
 
 . "${SCRIPT_DIR}/common.sh"
+. "${SCRIPT_DIR}/config.sh"
 
 print_issue_usage() {
 	cat <<'USAGE'
@@ -193,6 +194,37 @@ parse_issue_opts() {
 		fatal "Password file not found: $PASS_FILE" 2
 	fi
 
+	# For multi-CA mode: use per-CA working configs if present; otherwise fallback to legacy dynamic configs
+	if [[ -n "${CA_ID:-}" ]]; then
+		ensure_per_ca_openssl_configs
+		if [[ -f "${intermediatePath}/openssl-intermediate.cnf" ]]; then
+			intermediateConfig="${intermediatePath}/openssl-intermediate.cnf"
+		fi
+		if [[ -f "${rootCAPath}/openssl-root.cnf" ]]; then
+			rootConfig="${rootCAPath}/openssl-root.cnf"
+		fi
+	else
+		# Legacy mode: use template configs but rewrite dir to current base paths if not default /opt/ca
+		if [[ -f "${SCRIPT_DIR}/openssl-intermediate.cnf" ]]; then
+			intermediateConfig="${SCRIPT_DIR}/openssl-intermediate.cnf"
+		fi
+		if [[ -f "${SCRIPT_DIR}/openssl-root.cnf" ]]; then
+			rootConfig="${SCRIPT_DIR}/openssl-root.cnf"
+		fi
+		if [[ "$basePath" != "/opt/ca" ]]; then
+			# Create dynamic intermediate config
+			intermediate_conf_run=$(mktemp)
+			sed "s|dir.*=.*/opt/ca/intermediate|dir = $intermediatePath|g" "$intermediateConfig" > "$intermediate_conf_run"
+			intermediateConfig="$intermediate_conf_run"
+			# Create dynamic root config if needed
+			if [[ -f "$rootConfig" ]]; then
+				root_conf_run=$(mktemp)
+				sed "s|dir.*=.*/opt/ca/root|dir = $rootCAPath|g" "$rootConfig" > "$root_conf_run"
+				rootConfig="$root_conf_run"
+			fi
+		fi
+	fi
+
 	# Update server-related variables now that SERVER_CN is set
 	serverKey="${intermediatePath}/private/${SERVER_CN}.key.pem"
 	serverCsr="${intermediatePath}/csr/${SERVER_CN}.csr"
@@ -200,32 +232,6 @@ parse_issue_opts() {
 	outputDir="${basePath}/output/${SERVER_CN}"
 	serverPem="${outputDir}/${SERVER_CN}.pkcs8.key.pem"
 	serverPfx="${outputDir}/${SERVER_CN}.pfx"
-
-	# Update intermediate key path
-	intermediateKey="${intermediatePath}/private/intermediate.key.pem"
-
-	# Update config paths to use test paths if they exist
-	if [[ -f "${SCRIPT_DIR}/openssl-intermediate.cnf" ]]; then
-		intermediateConfig="${SCRIPT_DIR}/openssl-intermediate.cnf"
-	fi
-	if [[ -f "${SCRIPT_DIR}/openssl-root.cnf" ]]; then
-		rootConfig="${SCRIPT_DIR}/openssl-root.cnf"
-	fi
-
-	# Create dynamic config files for test environment
-	if [[ "$basePath" != "/opt/ca" ]]; then
-		# Create dynamic intermediate config
-		intermediate_conf_run=$(mktemp)
-		sed "s|dir.*=.*/opt/ca/intermediate|dir = $intermediatePath|g" "$intermediateConfig" > "$intermediate_conf_run"
-		intermediateConfig="$intermediate_conf_run"
-
-		# Create dynamic root config if needed
-		if [[ -f "$rootConfig" ]]; then
-			root_conf_run=$(mktemp)
-			sed "s|dir.*=.*/opt/ca/root|dir = $rootCAPath|g" "$rootConfig" > "$root_conf_run"
-			rootConfig="$root_conf_run"
-		fi
-	fi
 }
 
 run_issue() {
@@ -234,7 +240,7 @@ run_issue() {
 
 	# Check if CA exists and is properly initialized
 	if [[ ! -f "$intermediateKey" ]] || [[ ! -f "$intermediateCert" ]] || [[ ! -f "$certificateChain" ]]; then
-		fatal "CA not found or not properly initialized. Run 'simpleca init' first." 1
+		fatal "CA not found or not properly initialized. Run 'simpleca init --ca-id <id>' first." 1
 	fi
 
 	# Apply overrides if specified
@@ -251,7 +257,7 @@ run_issue() {
 		fatal "Certificate already exists: $serverCert. Use --force to overwrite." 1
 	fi
 
-	info "Issuing certificate for: $SERVER_CN"
+	info "Issuing certificate for: $SERVER_CN${CA_ID:+ (CA: ${CA_ID})}"
 
 	#------------- Password prompts ------------------
 	if [[ -n "$PASS_FILE" ]]; then
@@ -302,7 +308,7 @@ run_issue() {
 			-addext "subjectAltName = ${SERVER_SANS}" \
 			-subj "/CN=${SERVER_CN}"
 
-	# Step 3: Sign the certificate with the CA we created (it's called self signing) - server.crt
+	# Step 3: Sign the certificate with the CA we created
 	openssl ca -config "$intermediateConfig" \
 			-extensions server_cert -days "${LEAF_DAYS}" -notext -md sha256 -batch \
 			-passin pass:"$rootCaPasswd" \
@@ -325,20 +331,21 @@ run_issue() {
 
 	info "Exporting server cert as pkcs12/pfx file..."
 	openssl pkcs12 -export -inkey "$serverKey" -passin pass:"${passwd}" \
-				 -in "$serverCert" -certfile "$certificateChain" \
-				 -out "$serverPfx" \
-				 -keypbe AES-256-CBC -certpbe AES-256-CBC \
-				 -macalg sha256 -iter "${PFX_ITER}" -maciter \
-				 -passout pass:"${passwd}"
+			 -in "$serverCert" -certfile "$certificateChain" \
+			 -out "$serverPfx" \
+			 -keypbe AES-256-CBC -certpbe AES-256-CBC \
+			 -macalg sha256 -iter "${PFX_ITER}" -maciter \
+			 -passout pass:"${passwd}"
 
 	info "Warning, the certificates will be copied to and possibly overwrite any files mounted to $exportDir"
 
+	mkdir -p "$exportDir"
 	cp "$outputDir"/* "$exportDir"/
 	cp "$serverCert" "$exportDir"/
 	cp "$certificateChain" "$exportDir"/
 	chmod 776 "$exportDir"/*
 
-	info "Certificate issued successfully for: $SERVER_CN"
+	info "Certificate issued successfully for: $SERVER_CN${CA_ID:+ (CA: ${CA_ID})}"
 	info "Files available in: $exportDir"
 }
 

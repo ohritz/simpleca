@@ -10,6 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 setup_error_handling
 
 . "${SCRIPT_DIR}/common.sh"
+. "${SCRIPT_DIR}/config.sh"
 
 print_validate_usage() {
 	cat <<'USAGE'
@@ -89,8 +90,15 @@ parse_validate_opts() {
 		esac
 	done
 
-	# Set default certificate file if not specified
+	# Allow positional argument as certificate path if provided and CERT_FILE still empty
+	if [[ -z "$CERT_FILE" ]] && [[ $# -gt 0 ]]; then
+		CERT_FILE="$1"
+		shift || true
+	fi
+
+	# If CERT_FILE not specified, default to current CA chain which requires a CA
 	if [[ -z "$CERT_FILE" ]]; then
+		require_ca_selected
 		CERT_FILE="$certificateChain"
 	fi
 
@@ -123,13 +131,20 @@ run_validate() {
 	info "Certificate details:"
 	openssl x509 -in "$CERT_FILE" -text -noout | head -20
 
-	# Validate certificate chain if it's a chain file
-	if [[ "$CERT_FILE" == "$certificateChain" ]]; then
-		info "Validating certificate chain..."
+	# Validate certificate chain
+	if [[ -n "${CA_ID:-}" ]] && [[ "$CERT_FILE" == "$certificateChain" ]]; then
+		info "Validating certificate chain for CA '${CA_ID}'..."
 		if openssl verify -CAfile "$rootCaCert" "$intermediateCert" >/dev/null 2>&1; then
 			info "✓ Certificate chain is valid"
 		else
 			fatal "✗ Certificate chain validation failed" 1
+		fi
+	elif [[ -f "$certificateChain" ]]; then
+		# If a specific cert file was provided, try verifying against the chain
+		if openssl verify -CAfile "$certificateChain" "$CERT_FILE" >/dev/null 2>&1; then
+			info "✓ Certificate chain is valid"
+		else
+			info "Certificate chain verification skipped or failed for provided cert"
 		fi
 	fi
 

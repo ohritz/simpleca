@@ -63,17 +63,19 @@ cleanup_tty() {
 # Read a password using configured or discoverable helper
 read_password() {
     local reader="${READ_PASSWORD_CMD:-}"
+    local password=""
+
     if [[ -n "$reader" ]]; then
-        . "$reader"
-        return 0
+        password="$("$reader")"
+    elif command -v read-password.sh >/dev/null 2>&1; then
+        password="$(read-password.sh)"
+    elif [[ -x /opt/tools/read-password.sh ]]; then
+        password="$(/opt/tools/read-password.sh)"
+    elif [[ -x "${SCRIPT_DIR:-}/read-password.sh" ]]; then
+        password="$("${SCRIPT_DIR}/read-password.sh")"
+    else
+        fatal "Password reader not found (set READ_PASSWORD_CMD or ensure read-password.sh in PATH)" 2
     fi
-    if command -v read-password.sh >/dev/null 2>&1; then
-        . "$(command -v read-password.sh)"
-        return 0
-    fi
-    if [[ -x /opt/tools/read-password.sh ]]; then
-        . /opt/tools/read-password.sh
-        return 0
-    fi
-    fatal "Password reader not found (set READ_PASSWORD_CMD or ensure read-password.sh in PATH)" 2
+
+    printf '%s' "$password"
 }

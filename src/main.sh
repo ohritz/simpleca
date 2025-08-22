@@ -11,6 +11,9 @@ setup_error_handling
 
 . "${SCRIPT_DIR}/common.sh"
 
+# Also source config helpers for registry operations
+. "${SCRIPT_DIR}/config.sh"
+
 # Version information - check multiple sources in order of preference
 get_version() {
 	# 1. Use baked-in BUILD_VERSION from Docker build if available
@@ -56,10 +59,12 @@ Usage:
 Commands:
   init        Initialize root and intermediate CA
   issue       Issue a server certificate
-  eject       Archive current CA state
-  re-init     Restore CA from archive
+  export      Archive current CA state
+  import      Restore CA from archive
   validate    Validate a certificate/chain
   cert-manager  Export cert-manager Issuer/Secret manifests
+  list        List registered CAs
+  use         Set default CA
   version     Print version info
   help        Show this help
 
@@ -71,12 +76,18 @@ Global options:
       --non-interactive  Fail if input would be prompted
       --base-path DIR Override CA base directory (default: ~/.local/share/simple-ca)
       --export-dir DIR Override export directory (default: ~/.local/share/simple-ca/export)
+      --config FILE   Registry file path (default: ${XDG_CONFIG_HOME:-$HOME/.config}/simple_ca/config.json)
+      --ca ID         Select CA id (uses default from registry if omitted)
 
 Examples:
   simpleca init
   simpleca --base-path /tmp/ca init
   simpleca issue --cn api.local --sans DNS:api.local,DNS:api
   simpleca validate
+  simpleca list
+  simpleca use --ca acme
+  simpleca export
+  simpleca import --ca-id acme backup.tar.gz
 USAGE
 }
 
@@ -88,7 +99,7 @@ QUIET=0; VERBOSE=0; NO_COLOR=0; NON_INTERACTIVE=0
 
 # Pre-parse help/version and global flags
 args=()
-while [[ $# -gt 0 ]]; do
+while [[ $# > 0 ]]; do
 	case "$1" in
 		--help|-h|help) print_usage; exit 0;;
 		--version) printf 'simpleca %s\n' "$VERSION"; exit 0;;
@@ -99,24 +110,29 @@ while [[ $# -gt 0 ]]; do
 		--base-path)
 			if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
 				export basePath="$2"
-				shift 2
-			else
-				fatal "--base-path requires an argument" 2
-			fi
-			continue
-			;;
+				shift 2; continue
+			else fatal "--base-path requires an argument" 2; fi ;;
 		--export-dir)
 			if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
 				export exportDir="$2"
-				shift 2
-			else
-				fatal "--export-dir requires an argument" 2
-			fi
-			continue
-			;;
+				shift 2; continue
+			else fatal "--export-dir requires an argument" 2; fi ;;
+		--config)
+			if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+				export REGISTRY_PATH="$2"
+				shift 2; continue
+			else fatal "--config requires a file path" 2; fi ;;
+		--config=*)
+			export REGISTRY_PATH="${1#--config=}"; shift; continue;;
+		--ca)
+			if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+				export CA_ID="$2"
+				shift 2; continue
+			else fatal "--ca requires an identifier" 2; fi ;;
+		--ca=*)
+			export CA_ID="${1#--ca=}"; shift; continue;;
 		--) shift; break;;
-		-*) # unknown flag
-			fatal "Unknown option: $1" 2;;
+		-*) fatal "Unknown option: $1" 2;;
 		*) args+=("$1"); shift; break;;
 	esac
 	shift || true
@@ -143,17 +159,23 @@ case "$SUBCOMMAND" in
 	issue)
 		. "${SCRIPT_DIR}/request-server-cert.sh" "$@"
 		;;
-	eject)
-		. "${SCRIPT_DIR}/eject-ca.sh" "$@"
+	export)
+		. "${SCRIPT_DIR}/export.sh" "$@"
 		;;
-	re-init)
-		. "${SCRIPT_DIR}/re-init.sh" "$@"
+	import)
+		. "${SCRIPT_DIR}/import.sh" "$@"
 		;;
 	validate)
 		. "${SCRIPT_DIR}/validate.sh" "$@"
 		;;
 	cert-manager)
 		. "${SCRIPT_DIR}/cert-manager.sh" "$@"
+		;;
+	list)
+		. "${SCRIPT_DIR}/list.sh" "$@"
+		;;
+	use)
+		. "${SCRIPT_DIR}/use.sh" "$@"
 		;;
 	version)
 		printf 'simpleca %s\n' "$VERSION"
@@ -171,5 +193,5 @@ case "$SUBCOMMAND" in
 			fatal "Unknown command: $SUBCOMMAND" 2
 		fi
 		;;
-esac
+ esac
 
