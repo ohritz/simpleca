@@ -1,5 +1,5 @@
 ---
-description: When writing tests for bats
+description: Ensure that Bash test suites written with @Bats and orchestrated with `make` are clean, maintainable, and CI/CD-friendly.
 globs:
 alwaysApply: false
 ---

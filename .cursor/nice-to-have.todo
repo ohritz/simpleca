@@ -1,6 +1,0 @@
-
-
-Dockerfile has a entrypoint that creates and runs as the current user, not root and not some arbitrary.
-
-
-issue has options that are eg --cn and don't work, only the single -c work.

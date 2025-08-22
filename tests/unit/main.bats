@@ -107,6 +107,13 @@ teardown() {
     assert_output_contains "import" "$output" || assert_output_contains "error" "$output"
 }
 
+@test "test_main_use_subcommand" {
+    # Test use subcommand dispatch
+    output=$(run_script "$SRC_DIR/main.sh" use 2>&1 || true)
+    # Should contain use-related output or error
+    assert_output_contains "use" "$output" || assert_output_contains "error" "$output"
+}
+
 @test "test_main_cert_manager_subcommand_help" {
     # Ensure cert-manager subcommand is wired and help is available
     output=$(run_script "$SRC_DIR/main.sh" cert-manager export --help)

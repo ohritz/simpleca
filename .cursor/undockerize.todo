@@ -1,17 +1,17 @@
 Undockerize + Options Parsing Refactor Plan
 
 Goals
-- [ ] Fix and unify option parsing across all commands so both short flags (-c) and long flags (--cn and --cn=value) always work consistently.
-- [ ] Undockerize defaults: make Simple CA runnable without Docker by defaulting to XDG paths (e.g., ~/.local/state/simple-ca) while preserving Docker support via env vars.
+- [x] Fix and unify option parsing across all commands so both short flags (-c) and long flags (--cn and --cn=value) always work consistently.
+- [x] Undockerize defaults: make Simple CA runnable without Docker by defaulting to XDG paths (e.g., ~/.local/state/simple-ca) while preserving Docker support via env vars.
 
 Conventions to implement
-- [ ] Parsing: Use portable manual while/case argument parsing (POSIX-compatible) per repo rules; support:
+- [x] Parsing: Use portable manual while/case argument parsing (POSIX-compatible) per repo rules; support:
   - Short flags: -f -k value -r value
   - Long flags: --force, --key-type value, --key-type=value
   - Stop parsing on --
   - -h/--help prints usage to stdout and exits 0; errors print to stderr and exit non-zero
   - Consistent error messages: "Unknown option: --xyz" and "Missing argument for --key-type"
-- [ ] XDG paths:
+- [x] XDG paths:
   - basePath default: ${XDG_DATA_HOME:-$HOME/.local/share}/simple-ca
   - exportDir default: ${XDG_DATA_HOME:-$HOME/.local/share}/simple-ca/export
   - rootConfig, intermediateConfig default to ${SCRIPT_DIR}/openssl-*.cnf
@@ -24,8 +24,6 @@ Task 1 — Normalize option parsing across all subcommands
   - [x] src/init.sh
   - [x] src/request-server-cert.sh
   - [x] src/validate.sh
-  - [x] src/eject-ca.sh
-  - [x] src/re-init.sh
   - [x] src/cert-manager.sh (already close; align behavior and messages)
 - [x] Edits:
   - [x] Replace getopts-only flows with a manual while [[ $# -gt 0 ]] parser supporting both short and long options (with and without =).
@@ -46,8 +44,6 @@ Task 2 — Add unit tests for option parsing correctness
   - [x] tests/unit/options_init.bats
   - [x] tests/unit/options_issue.bats
   - [x] tests/unit/options_validate.bats
-  - [x] tests/unit/options_eject.bats
-  - [x] tests/unit/options_reinit.bats
   - [x] tests/unit/options_cert_manager.bats
 - [x] Coverage:
   - [x] Validate short and long variants (with = and with space).
@@ -58,36 +54,35 @@ Task 2 — Add unit tests for option parsing correctness
   - [x] make test-unit passes and exercises both long and short paths for each command.
 
 Task 3 — Introduce XDG defaults and global path flags
-- [ ] Files:
-  - [ ] src/common.sh (defaults)
-  - [ ] src/main.sh (global flag parsing)
-- [ ] Edits in src/common.sh:
-  - [ ] Compute default_xdg_data_dir="${XDG_DATA_HOME:-$HOME/.local/share}".
-  - [ ] Default basePath to "${default_xdg_data_dir}/simple-ca" when basePath not set.
-  - [ ] Default exportDir to "${default_xdg_data_dir}/simple-ca/export" when exportDir not set.
-  - [ ] Default rootConfig and intermediateConfig to "${SCRIPT_DIR}/openssl-*.cnf" when not set.
-  - [ ] Ensure directories are created as needed (mkdir -p on use sites, not at import time) with restrictive permissions.
-- [ ] Edits in src/main.sh:
-  - [ ] Add global flags: --base-path <dir>, --export-dir <dir> (and optional short forms -B, -E if we want).
-  - [ ] After parsing, export basePath/exportDir so subcommands inherit.
-  - [ ] Update help text to mention XDG defaults and new global flags.
-- [ ] Acceptance criteria:
-  - [ ] Running scripts without any env produces CA under ~/.local/share/simple-ca by default.
-  - [ ] Global flags override defaults for all subcommands (e.g., simpleca --base-path /tmp/ca init).
+- [x] Files:
+  - [x] src/common.sh (defaults)
+  - [x] src/main.sh (global flag parsing)
+- [x] Edits in src/common.sh:
+  - [x] Compute default_xdg_data_dir="${XDG_DATA_HOME:-$HOME/.local/share}".
+  - [x] Default basePath to "${default_xdg_data_dir}/simple-ca" when basePath not set.
+  - [x] Default exportDir to "${default_xdg_data_dir}/simple-ca/export" when exportDir not set.
+  - [x] Default rootConfig and intermediateConfig to "${SCRIPT_DIR}/openssl-*.cnf" when not set.
+  - [x] Ensure directories are created as needed (mkdir -p on use sites, not at import time) with restrictive permissions.
+- [x] Edits in src/main.sh:
+  - [x] Add global flags: --base-path <dir>, --export-dir <dir> (and optional short forms -B, -E if we want).
+  - [x] After parsing, export basePath/exportDir so subcommands inherit.
+  - [x] Update help text to mention XDG defaults and new global flags.
+- [x] Acceptance criteria:
+  - [x] Running scripts without any env produces CA under ~/.local/share/simple-ca by default.
+  - [x] Global flags override defaults for all subcommands (e.g., simpleca --base-path /tmp/ca init).
 
 Task 4 — Remove hard-coded /opt paths and make config writing unconditional
 - [ ] Files:
   - [ ] src/request-server-cert.sh
   - [ ] src/init.sh
   - [ ] src/cert-manager.sh
-  - [ ] src/eject-ca.sh, src/re-init.sh (exportDir usage)
 - [ ] Edits:
   - [ ] Stop checking for basePath == "/opt/ca" to decide whether to generate per-run openssl config; always generate configs using rootCAPath/intermediatePath.
   - [ ] Replace any remaining /opt/export assumptions with exportDir.
-  - [ ] Ensure copy/permissions in issue/eject/validate respect exportDir and do not assume /opt.
+  - [ ] Ensure copy/permissions in issue/validate respect exportDir and do not assume /opt.
 - [ ] Acceptance criteria:
   - [ ] No /opt/ references remain in code paths except Dockerfile ENV and comments.
-  - [ ] issue/eject/validate work with XDG defaults and with custom --base-path/--export-dir.
+  - [ ] issue/validate work with XDG defaults and with custom --base-path/--export-dir.
 
 Task 5 — Preserve Docker compatibility
 - [ ] Files:
@@ -129,20 +124,16 @@ Task 8 — Tests and quality gates
 - [ ] Ensure shellcheck passes on all new/modified scripts.
 
 Concrete edit checklist per file
-- [ ] src/common.sh
-  - [ ] Change defaults to XDG; default configs to ${SCRIPT_DIR}/openssl-*.cnf.
-- [ ] src/main.sh
-  - [ ] Add --base-path, --export-dir; mention in usage; export after parse.
+- [x] src/common.sh
+  - [x] Change defaults to XDG; default configs to ${SCRIPT_DIR}/openssl-*.cnf.
+- [x] src/main.sh
+  - [x] Add --base-path, --export-dir; mention in usage; export after parse.
 - [x] src/init.sh
   - [x] Manual parsing with both short/long variants; no getopts; help text unchanged; no /opt assumptions.
 - [x] src/request-server-cert.sh
   - [x] Manual parsing; accept --pass-file with and without =; always generate per-run configs using paths; remove /opt special casing; keep behavior of SERVER_CN positional fallback.
 - [x] src/validate.sh
   - [x] Manual parsing; accept --pass-file with and without =.
-- [x] src/eject-ca.sh
-  - [x] Manual parsing; accept --output with and without =; write to exportDir.
-- [x] src/re-init.sh
-  - [x] Manual parsing; positional archive respected; if relative, resolve under exportDir.
 - [x] src/cert-manager.sh
   - [x] Align errors/messages; ensure both forms are accepted for all options; default OUT_DIR to ${exportDir}/manifests.
 - [ ] Dockerfile

@@ -85,7 +85,7 @@ Examples:
   simpleca issue --cn api.local --sans DNS:api.local,DNS:api
   simpleca validate
   simpleca list
-  simpleca use --ca acme
+  simpleca use acme
   simpleca export
   simpleca import --ca-id acme backup.tar.gz
 USAGE
@@ -137,6 +137,8 @@ while [[ $# > 0 ]]; do
 	esac
 	shift || true
 done
+
+
 
 # Remaining args include subcommand and its args
 set -- "${args[@]}" "$@"
