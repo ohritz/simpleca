@@ -99,7 +99,7 @@ QUIET=0; VERBOSE=0; NO_COLOR=0; NON_INTERACTIVE=0
 
 # Pre-parse help/version and global flags
 args=()
-while [[ $# > 0 ]]; do
+while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--help|-h|help) print_usage; exit 0;;
 		--version) printf 'simpleca %s\n' "$VERSION"; exit 0;;
@@ -135,7 +135,6 @@ while [[ $# > 0 ]]; do
 		-*) fatal "Unknown option: $1" 2;;
 		*) args+=("$1"); shift; break;;
 	esac
-	shift || true
 done
 
 

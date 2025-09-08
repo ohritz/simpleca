@@ -20,6 +20,7 @@ Usage:
   simpleca issue [options]
 
 Options:
+  --ca <id>                     Select CA id (uses default from registry if omitted)
   -c, --cn <hostname>           Common Name (hostname) for the certificate
   -s, --sans <sans>             Subject Alternative Names (comma-separated)
   -k, --key-type <type>         Key type: ec (default) or rsa
@@ -32,7 +33,7 @@ Options:
 
 Examples:
   simpleca issue --cn api.local
-  simpleca issue --cn web.local --sans DNS:web.local,DNS:www.web.local
+  simpleca issue --ca acme --cn web.local --sans DNS:web.local,DNS:www.web.local
   simpleca issue --cn server.local --key-type rsa --rsa-bits 4096
   simpleca issue --cn app.local --pass-file /run/secrets/cert.pass
 USAGE
@@ -48,6 +49,18 @@ parse_issue_opts() {
 			-h|--help)
 				print_issue_usage
 				exit 0
+				;;
+			--ca)
+				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
+					export CA_ID="$2"
+					shift 2
+				else
+					fatal "Missing argument for --ca" 2
+				fi
+				;;
+			--ca=*)
+				export CA_ID="${1#--ca=}"
+				shift
 				;;
 			-c|--cn)
 				if [[ -n "${2:-}" && ${2:0:1} != "-" ]]; then
@@ -158,6 +171,14 @@ parse_issue_opts() {
 
 	# Validate required arguments
 	[[ -n "$SERVER_CN" ]] || fatal 'Missing required: --cn <hostname>' 2
+
+	# Validate CA selection if specified
+	if [[ -n "${CA_ID:-}" ]]; then
+		# Check if CA exists (either in registry or on disk)
+		if ! ca_exists "$CA_ID"; then
+			fatal "CA '$CA_ID' not found. Use 'simpleca list' to see available CAs." 2
+		fi
+	fi
 
 	# Validate key type if specified
 	if [[ -n "$KEY_TYPE" ]]; then
